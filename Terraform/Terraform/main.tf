@@ -1,15 +1,11 @@
 provider "azurerm" {
   features {
     key_vault {
-      # Skip reading secrets during plan if we lack permissions
       recover_soft_deleted_secrets = false
     }
   }
   subscription_id                 = var.subscription_id
   resource_provider_registrations = var.resource_provider_registrations
-  
-  # Skip provider registration if not needed
-  skip_provider_registration = true
 }
 
 # Required for time_sleep resource
