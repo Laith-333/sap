@@ -5,7 +5,7 @@ provider "azurerm" {
   resource_provider_registrations = var.resource_provider_registrations
 }
 
-# 🔥 Auto detect identity (works for local + GitHub)
+# 🔥 Detect identity (works for local + GitHub)
 data "azurerm_client_config" "current" {}
 
 # -------------------------
@@ -54,8 +54,8 @@ resource "azurerm_key_vault" "kv" {
 
   sku_name = "standard"
 
-  # 🔥 CRITICAL FIX
-  enable_rbac_authorization = true
+  # 🔥 FIXED (new property name)
+  rbac_authorization_enabled = true
 
   purge_protection_enabled   = false
   soft_delete_retention_days = 7
@@ -64,13 +64,22 @@ resource "azurerm_key_vault" "kv" {
 }
 
 # -------------------------
-# 🔥 RBAC ROLE ASSIGNMENT (REPLACES ACCESS POLICY)
+# RBAC ROLE ASSIGNMENT
 # -------------------------
 resource "azurerm_role_assignment" "kv_secrets" {
   scope                = azurerm_key_vault.kv.id
   role_definition_name = "Key Vault Secrets Officer"
 
   principal_id = data.azurerm_client_config.current.object_id
+}
+
+# -------------------------
+# 🔥 WAIT FOR RBAC PROPAGATION
+# -------------------------
+resource "time_sleep" "wait_for_rbac" {
+  depends_on = [azurerm_role_assignment.kv_secrets]
+
+  create_duration = "60s"
 }
 
 # -------------------------
@@ -81,7 +90,7 @@ resource "azurerm_key_vault_secret" "pipelines" {
   value        = file("${path.module}/pipelines.env")
   key_vault_id = azurerm_key_vault.kv.id
 
-  depends_on = [azurerm_role_assignment.kv_secrets]
+  depends_on = [time_sleep.wait_for_rbac]
 }
 
 resource "azurerm_key_vault_secret" "microsoft" {
@@ -89,7 +98,7 @@ resource "azurerm_key_vault_secret" "microsoft" {
   value        = file("${path.module}/microsoft.env")
   key_vault_id = azurerm_key_vault.kv.id
 
-  depends_on = [azurerm_role_assignment.kv_secrets]
+  depends_on = [time_sleep.wait_for_rbac]
 }
 
 resource "azurerm_key_vault_secret" "jumbo" {
@@ -97,5 +106,5 @@ resource "azurerm_key_vault_secret" "jumbo" {
   value        = file("${path.module}/jumbo.env")
   key_vault_id = azurerm_key_vault.kv.id
 
-  depends_on = [azurerm_role_assignment.kv_secrets]
+  depends_on = [time_sleep.wait_for_rbac]
 }
