@@ -5,7 +5,7 @@ provider "azurerm" {
   resource_provider_registrations = var.resource_provider_registrations
 }
 
-# 🔥 Auto-detect tenant + user
+# Detect identity (GitHub or local)
 data "azurerm_client_config" "current" {}
 
 # -------------------------
@@ -43,7 +43,7 @@ resource "azurerm_subnet" "subnet_secrets" {
 }
 
 # -------------------------
-# Key Vault
+# Key Vault (RBAC ENABLED 🔥)
 # -------------------------
 resource "azurerm_key_vault" "kv" {
   name                = "peiplnessecrets123"
@@ -54,6 +54,9 @@ resource "azurerm_key_vault" "kv" {
 
   sku_name = "standard"
 
+  # 🔥 THIS IS THE KEY FIX
+  rbac_authorization_enabled = true
+
   purge_protection_enabled   = false
   soft_delete_retention_days = 7
 
@@ -61,39 +64,47 @@ resource "azurerm_key_vault" "kv" {
 }
 
 # -------------------------
-# Access Policy
+# RBAC ROLE (REPLACES ACCESS POLICY)
 # -------------------------
-resource "azurerm_key_vault_access_policy" "current" {
-  key_vault_id = azurerm_key_vault.kv.id
+resource "azurerm_role_assignment" "kv_secrets" {
+  scope                = azurerm_key_vault.kv.id
+  role_definition_name = "Key Vault Secrets Officer"
 
-  tenant_id = data.azurerm_client_config.current.tenant_id
-  object_id = data.azurerm_client_config.current.object_id
-
-  secret_permissions = [
-    "Get",
-    "List",
-    "Set",
-    "Delete"
-  ]
+  principal_id = data.azurerm_client_config.current.object_id
 }
 
 # -------------------------
-# Secrets from files
+# WAIT FOR RBAC (IMPORTANT)
+# -------------------------
+resource "time_sleep" "wait_for_rbac" {
+  depends_on = [azurerm_role_assignment.kv_secrets]
+
+  create_duration = "60s"
+}
+
+# -------------------------
+# Secrets
 # -------------------------
 resource "azurerm_key_vault_secret" "pipelines" {
   name         = "pipelines-config"
   value        = file("${path.module}/pipelines.env")
   key_vault_id = azurerm_key_vault.kv.id
+
+  depends_on = [time_sleep.wait_for_rbac]
 }
 
 resource "azurerm_key_vault_secret" "microsoft" {
   name         = "microsoft-config"
   value        = file("${path.module}/microsoft.env")
   key_vault_id = azurerm_key_vault.kv.id
+
+  depends_on = [time_sleep.wait_for_rbac]
 }
 
 resource "azurerm_key_vault_secret" "jumbo" {
   name         = "jumbo-config"
   value        = file("${path.module}/jumbo.env")
   key_vault_id = azurerm_key_vault.kv.id
+
+  depends_on = [time_sleep.wait_for_rbac]
 }
