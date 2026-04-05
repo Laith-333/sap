@@ -11,37 +11,27 @@ jobs:
 
     defaults:
       run:
-        working-directory: Terraform   # ✅ THIS IS YOUR CHANGE
+        working-directory: Terraform
+
+    # 🔥 AUTH FIX (VERY IMPORTANT)
+    env:
+      ARM_CLIENT_ID: ${{ secrets.ARM_CLIENT_ID }}
+      ARM_CLIENT_SECRET: ${{ secrets.ARM_CLIENT_SECRET }}
+      ARM_SUBSCRIPTION_ID: ${{ secrets.ARM_SUBSCRIPTION_ID }}
+      ARM_TENANT_ID: ${{ secrets.ARM_TENANT_ID }}
 
     steps:
-      # -------------------------
-      # Checkout code
-      # -------------------------
       - name: Checkout
         uses: actions/checkout@v4
 
-      # -------------------------
-      # Setup Terraform
-      # -------------------------
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
-        with:
-          terraform_version: 1.6.6
 
-      # -------------------------
-      # Terraform Init
-      # -------------------------
       - name: Terraform Init
         run: terraform init
 
-      # -------------------------
-      # Terraform Plan
-      # -------------------------
       - name: Terraform Plan
         run: terraform plan
 
-      # -------------------------
-      # Terraform Apply
-      # -------------------------
       - name: Terraform Apply
         run: terraform apply -auto-approve
