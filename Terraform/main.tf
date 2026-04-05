@@ -4,7 +4,7 @@ provider "azurerm" {
   subscription_id = var.subscription_id
 }
 
-# Detect current service principal (from GitHub)
+# Detect current identity (GitHub / Terraform)
 data "azurerm_client_config" "current" {}
 
 # -------------------------
@@ -58,9 +58,9 @@ resource "azurerm_key_vault" "kv" {
 }
 
 # -------------------------
-# Access Policy
+# ✅ ACCESS FOR TERRAFORM (service principal)
 # -------------------------
-resource "azurerm_key_vault_access_policy" "current" {
+resource "azurerm_key_vault_access_policy" "terraform" {
   key_vault_id = azurerm_key_vault.kv.id
 
   tenant_id = data.azurerm_client_config.current.tenant_id
@@ -75,10 +75,31 @@ resource "azurerm_key_vault_access_policy" "current" {
 }
 
 # -------------------------
-# WAIT (🔥 FIX)
+# ✅ ACCESS FOR YOU (VERY IMPORTANT FIX)
+# -------------------------
+resource "azurerm_key_vault_access_policy" "your_user" {
+  key_vault_id = azurerm_key_vault.kv.id
+
+  tenant_id = data.azurerm_client_config.current.tenant_id
+
+  # 🔥 PUT YOUR USER OBJECT ID HERE
+  object_id = var.user_object_id
+
+  secret_permissions = [
+    "Get",
+    "List"
+  ]
+}
+
+# -------------------------
+# ⏳ Wait for permissions
 # -------------------------
 resource "time_sleep" "wait_for_permissions" {
-  depends_on      = [azurerm_key_vault_access_policy.current]
+  depends_on = [
+    azurerm_key_vault_access_policy.terraform,
+    azurerm_key_vault_access_policy.your_user
+  ]
+
   create_duration = "60s"
 }
 
