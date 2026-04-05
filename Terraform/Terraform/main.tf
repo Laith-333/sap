@@ -5,7 +5,7 @@ provider "azurerm" {
   resource_provider_registrations = var.resource_provider_registrations
 }
 
-# 🔥 Auto-detect tenant + user
+# 🔥 Auto detect identity (works for BOTH local + GitHub)
 data "azurerm_client_config" "current" {}
 
 # -------------------------
@@ -61,7 +61,7 @@ resource "azurerm_key_vault" "kv" {
 }
 
 # -------------------------
-# Access Policy
+# 🔥 FIXED Access Policy (KEY PART)
 # -------------------------
 resource "azurerm_key_vault_access_policy" "current" {
   key_vault_id = azurerm_key_vault.kv.id
@@ -84,16 +84,22 @@ resource "azurerm_key_vault_secret" "pipelines" {
   name         = "pipelines-config"
   value        = file("${path.module}/pipelines.env")
   key_vault_id = azurerm_key_vault.kv.id
+
+  depends_on = [azurerm_key_vault_access_policy.current]
 }
 
 resource "azurerm_key_vault_secret" "microsoft" {
   name         = "microsoft-config"
   value        = file("${path.module}/microsoft.env")
   key_vault_id = azurerm_key_vault.kv.id
+
+  depends_on = [azurerm_key_vault_access_policy.current]
 }
 
 resource "azurerm_key_vault_secret" "jumbo" {
   name         = "jumbo-config"
   value        = file("${path.module}/jumbo.env")
   key_vault_id = azurerm_key_vault.kv.id
+
+  depends_on = [azurerm_key_vault_access_policy.current]
 }
