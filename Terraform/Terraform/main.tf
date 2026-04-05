@@ -5,7 +5,7 @@ provider "azurerm" {
   resource_provider_registrations = var.resource_provider_registrations
 }
 
-# 🔥 Auto detect identity (works for BOTH local + GitHub)
+# 🔥 Auto detect identity (works for local + GitHub)
 data "azurerm_client_config" "current" {}
 
 # -------------------------
@@ -43,7 +43,7 @@ resource "azurerm_subnet" "subnet_secrets" {
 }
 
 # -------------------------
-# Key Vault
+# Key Vault (RBAC ENABLED 🔥)
 # -------------------------
 resource "azurerm_key_vault" "kv" {
   name                = "peiplnessecrets123"
@@ -54,6 +54,9 @@ resource "azurerm_key_vault" "kv" {
 
   sku_name = "standard"
 
+  # 🔥 CRITICAL FIX
+  enable_rbac_authorization = true
+
   purge_protection_enabled   = false
   soft_delete_retention_days = 7
 
@@ -61,20 +64,13 @@ resource "azurerm_key_vault" "kv" {
 }
 
 # -------------------------
-# 🔥 FIXED Access Policy (KEY PART)
+# 🔥 RBAC ROLE ASSIGNMENT (REPLACES ACCESS POLICY)
 # -------------------------
-resource "azurerm_key_vault_access_policy" "current" {
-  key_vault_id = azurerm_key_vault.kv.id
+resource "azurerm_role_assignment" "kv_secrets" {
+  scope                = azurerm_key_vault.kv.id
+  role_definition_name = "Key Vault Secrets Officer"
 
-  tenant_id = data.azurerm_client_config.current.tenant_id
-  object_id = data.azurerm_client_config.current.object_id
-
-  secret_permissions = [
-    "Get",
-    "List",
-    "Set",
-    "Delete"
-  ]
+  principal_id = data.azurerm_client_config.current.object_id
 }
 
 # -------------------------
@@ -85,7 +81,7 @@ resource "azurerm_key_vault_secret" "pipelines" {
   value        = file("${path.module}/pipelines.env")
   key_vault_id = azurerm_key_vault.kv.id
 
-  depends_on = [azurerm_key_vault_access_policy.current]
+  depends_on = [azurerm_role_assignment.kv_secrets]
 }
 
 resource "azurerm_key_vault_secret" "microsoft" {
@@ -93,7 +89,7 @@ resource "azurerm_key_vault_secret" "microsoft" {
   value        = file("${path.module}/microsoft.env")
   key_vault_id = azurerm_key_vault.kv.id
 
-  depends_on = [azurerm_key_vault_access_policy.current]
+  depends_on = [azurerm_role_assignment.kv_secrets]
 }
 
 resource "azurerm_key_vault_secret" "jumbo" {
@@ -101,5 +97,5 @@ resource "azurerm_key_vault_secret" "jumbo" {
   value        = file("${path.module}/jumbo.env")
   key_vault_id = azurerm_key_vault.kv.id
 
-  depends_on = [azurerm_key_vault_access_policy.current]
+  depends_on = [azurerm_role_assignment.kv_secrets]
 }
