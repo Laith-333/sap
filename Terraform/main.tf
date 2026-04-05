@@ -1,11 +1,10 @@
 provider "azurerm" {
   features {}
+
   subscription_id = var.subscription_id
 }
 
-# -------------------------
-# Current user / service principal
-# -------------------------
+# Detect current service principal (from GitHub)
 data "azurerm_client_config" "current" {}
 
 # -------------------------
@@ -76,16 +75,15 @@ resource "azurerm_key_vault_access_policy" "current" {
 }
 
 # -------------------------
-# ⏳ WAIT FOR PERMISSIONS (🔥 FIX)
+# WAIT (🔥 FIX)
 # -------------------------
 resource "time_sleep" "wait_for_permissions" {
-  depends_on = [azurerm_key_vault_access_policy.current]
-
+  depends_on      = [azurerm_key_vault_access_policy.current]
   create_duration = "60s"
 }
 
 # -------------------------
-# Secrets (🔥 FIXED)
+# Secrets
 # -------------------------
 resource "azurerm_key_vault_secret" "pipelines" {
   name         = "pipelines-config"
