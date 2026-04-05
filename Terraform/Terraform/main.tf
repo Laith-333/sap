@@ -56,7 +56,7 @@ resource "azurerm_subnet" "subnet_secrets" {
 }
 
 # -------------------------
-# Key Vault (RBAC ENABLED)
+# Key Vault (ACCESS POLICY MODE - no RBAC needed)
 # -------------------------
 resource "azurerm_key_vault" "kv" {
   name                       = "peiplnessecrets123"
@@ -64,75 +64,48 @@ resource "azurerm_key_vault" "kv" {
   resource_group_name        = azurerm_resource_group.rg.name
   tenant_id                  = data.azurerm_client_config.current.tenant_id
   sku_name                   = "standard"
-  rbac_authorization_enabled = true
+  rbac_authorization_enabled = false  # Use access policies instead
   purge_protection_enabled   = false
   soft_delete_retention_days = 7
   tags                       = var.tags
-}
 
-# -------------------------
-# RBAC ROLE ASSIGNMENT
-# Assign "Key Vault Secrets Officer" to current identity
-# -------------------------
-resource "azurerm_role_assignment" "kv_secrets" {
-  scope                = azurerm_key_vault.kv.id
-  role_definition_name = "Key Vault Secrets Officer"
-  principal_id         = data.azurerm_client_config.current.object_id
-  
-  # Prevent recreation if already exists
-  lifecycle {
-    ignore_changes = [
-      principal_type
+  # Grant access directly in Key Vault (no separate role assignment needed)
+  access_policy {
+    tenant_id = data.azurerm_client_config.current.tenant_id
+    object_id = data.azurerm_client_config.current.object_id
+
+    secret_permissions = [
+      "Get",
+      "List",
+      "Set",
+      "Delete",
+      "Recover",
+      "Backup",
+      "Restore",
+      "Purge"
     ]
   }
 }
 
 # -------------------------
-# WAIT FOR RBAC PROPAGATION
-# Azure RBAC can take up to 10 minutes, but usually 60-90s
-# -------------------------
-resource "time_sleep" "wait_for_rbac" {
-  depends_on      = [azurerm_role_assignment.kv_secrets]
-  create_duration = "90s"
-
-  triggers = {
-    # Re-wait if role assignment changes
-    role_assignment_id = azurerm_role_assignment.kv_secrets.id
-  }
-}
-
-# -------------------------
-# Secrets from files
+# Secrets from files (no RBAC wait needed)
 # -------------------------
 resource "azurerm_key_vault_secret" "pipelines" {
   name         = "pipelines-config"
   value        = file("${path.module}/pipelines.env")
   key_vault_id = azurerm_key_vault.kv.id
-
-  depends_on = [time_sleep.wait_for_rbac]
-
-  lifecycle {
-    ignore_changes = [
-      # Don't update if only value changes (optional - remove if you want updates)
-      # value
-    ]
-  }
 }
 
 resource "azurerm_key_vault_secret" "microsoft" {
   name         = "microsoft-config"
   value        = file("${path.module}/microsoft.env")
   key_vault_id = azurerm_key_vault.kv.id
-
-  depends_on = [time_sleep.wait_for_rbac]
 }
 
 resource "azurerm_key_vault_secret" "jumbo" {
   name         = "jumbo-config"
   value        = file("${path.module}/jumbo.env")
   key_vault_id = azurerm_key_vault.kv.id
-
-  depends_on = [time_sleep.wait_for_rbac]
 }
 
 # -------------------------
