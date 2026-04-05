@@ -1,13 +1,5 @@
 variable "subscription_id" {
-  description = "Azure Subscription ID"
-  type        = string
-  default     = "e8fd00c7-068f-4e91-9d44-5e9cdaf82185"
-}
-
-variable "resource_provider_registrations" {
-  description = "Provider registration mode"
-  type        = string
-  default     = "none"
+  default = "e8fd00c7-068f-4e91-9d44-5e9cdaf82185"
 }
 
 variable "resource_group_name" {
@@ -15,7 +7,7 @@ variable "resource_group_name" {
 }
 
 variable "location" {
-  default = "Italy North"
+  default = "italynorth"
 }
 
 variable "vnet_name" {
@@ -35,7 +27,6 @@ variable "subnet_prefix" {
 }
 
 variable "tags" {
-  type = map(string)
   default = {
     piplines = "secrets"
   }
