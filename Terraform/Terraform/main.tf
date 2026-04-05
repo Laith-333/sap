@@ -1,11 +1,32 @@
 provider "azurerm" {
-  features {}
-
-  subscription_id = var.subscription_id
+  features {
+    key_vault {
+      # Skip reading secrets during plan if we lack permissions
+      recover_soft_deleted_secrets = false
+    }
+  }
+  subscription_id                 = var.subscription_id
   resource_provider_registrations = var.resource_provider_registrations
+  
+  # Skip provider registration if not needed
+  skip_provider_registration = true
 }
 
-# 🔥 Detect identity (works for local + GitHub)
+# Required for time_sleep resource
+terraform {
+  required_providers {
+    azurerm = {
+      source  = "hashicorp/azurerm"
+      version = ">= 3.0"
+    }
+    time = {
+      source  = "hashicorp/time"
+      version = ">= 0.9.0"
+    }
+  }
+}
+
+# Detect identity (works for local + GitHub)
 data "azurerm_client_config" "current" {}
 
 # -------------------------
@@ -14,8 +35,7 @@ data "azurerm_client_config" "current" {}
 resource "azurerm_resource_group" "rg" {
   name     = var.resource_group_name
   location = var.location
-
-  tags = var.tags
+  tags     = var.tags
 }
 
 # -------------------------
@@ -25,10 +45,8 @@ resource "azurerm_virtual_network" "vnet" {
   name                = var.vnet_name
   location            = azurerm_resource_group.rg.location
   resource_group_name = azurerm_resource_group.rg.name
-
-  address_space = var.vnet_address_space
-
-  tags = var.tags
+  address_space       = var.vnet_address_space
+  tags                = var.tags
 }
 
 # -------------------------
@@ -38,48 +56,53 @@ resource "azurerm_subnet" "subnet_secrets" {
   name                 = var.subnet_name
   resource_group_name  = azurerm_resource_group.rg.name
   virtual_network_name = azurerm_virtual_network.vnet.name
-
-  address_prefixes = var.subnet_prefix
+  address_prefixes     = var.subnet_prefix
 }
 
 # -------------------------
-# Key Vault (RBAC ENABLED 🔥)
+# Key Vault (RBAC ENABLED)
 # -------------------------
 resource "azurerm_key_vault" "kv" {
-  name                = "peiplnessecrets123"
-  location            = azurerm_resource_group.rg.location
-  resource_group_name = azurerm_resource_group.rg.name
-
-  tenant_id = data.azurerm_client_config.current.tenant_id
-
-  sku_name = "standard"
-
-  # 🔥 FIXED (new property name)
+  name                       = "peiplnessecrets123"
+  location                   = azurerm_resource_group.rg.location
+  resource_group_name        = azurerm_resource_group.rg.name
+  tenant_id                  = data.azurerm_client_config.current.tenant_id
+  sku_name                   = "standard"
   rbac_authorization_enabled = true
-
   purge_protection_enabled   = false
   soft_delete_retention_days = 7
-
-  tags = var.tags
+  tags                       = var.tags
 }
 
 # -------------------------
 # RBAC ROLE ASSIGNMENT
+# Assign "Key Vault Secrets Officer" to current identity
 # -------------------------
 resource "azurerm_role_assignment" "kv_secrets" {
   scope                = azurerm_key_vault.kv.id
   role_definition_name = "Key Vault Secrets Officer"
-
-  principal_id = data.azurerm_client_config.current.object_id
+  principal_id         = data.azurerm_client_config.current.object_id
+  
+  # Prevent recreation if already exists
+  lifecycle {
+    ignore_changes = [
+      principal_type
+    ]
+  }
 }
 
 # -------------------------
-# 🔥 WAIT FOR RBAC PROPAGATION
+# WAIT FOR RBAC PROPAGATION
+# Azure RBAC can take up to 10 minutes, but usually 60-90s
 # -------------------------
 resource "time_sleep" "wait_for_rbac" {
-  depends_on = [azurerm_role_assignment.kv_secrets]
+  depends_on      = [azurerm_role_assignment.kv_secrets]
+  create_duration = "90s"
 
-  create_duration = "60s"
+  triggers = {
+    # Re-wait if role assignment changes
+    role_assignment_id = azurerm_role_assignment.kv_secrets.id
+  }
 }
 
 # -------------------------
@@ -91,6 +114,13 @@ resource "azurerm_key_vault_secret" "pipelines" {
   key_vault_id = azurerm_key_vault.kv.id
 
   depends_on = [time_sleep.wait_for_rbac]
+
+  lifecycle {
+    ignore_changes = [
+      # Don't update if only value changes (optional - remove if you want updates)
+      # value
+    ]
+  }
 }
 
 resource "azurerm_key_vault_secret" "microsoft" {
@@ -107,4 +137,20 @@ resource "azurerm_key_vault_secret" "jumbo" {
   key_vault_id = azurerm_key_vault.kv.id
 
   depends_on = [time_sleep.wait_for_rbac]
+}
+
+# -------------------------
+# Outputs
+# -------------------------
+output "key_vault_id" {
+  value = azurerm_key_vault.kv.id
+}
+
+output "key_vault_uri" {
+  value = azurerm_key_vault.kv.vault_uri
+}
+
+output "current_principal_id" {
+  value       = data.azurerm_client_config.current.object_id
+  description = "The object ID that Terraform is running as"
 }
