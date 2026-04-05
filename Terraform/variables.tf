@@ -2,6 +2,11 @@ variable "subscription_id" {
   default = "e8fd00c7-068f-4e91-9d44-5e9cdaf82185"
 }
 
+# 🔥 ADD THIS (YOUR USER ID)
+variable "user_object_id" {
+  description = "Your Azure user object ID"
+}
+
 variable "resource_group_name" {
   default = "SAP_Enveriment_RG"
 }
