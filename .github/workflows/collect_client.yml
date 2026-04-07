@@ -1,53 +1,124 @@
-- name: Fetch full config list
-  run: |
-    echo "🔍 STEP 1: Get ALL secrets"
-    az keyvault secret list \
-      --vault-name "${{ secrets.AZURE_VAULT_NAME }}" \
-      --query "[].name" -o tsv > all.txt
+name: Export Key Vault Config List
 
-    echo ""
-    echo "📄 ALL SECRETS:"
-    cat all.txt || echo "❌ No secrets found at all"
+on:
+  workflow_dispatch:
 
-    echo ""
-    echo "🔍 STEP 2: Filter config-*"
-    grep '^config-' all.txt > configs.txt || true
+jobs:
+  export-configs:
+    runs-on: ubuntu-latest
 
-    echo ""
-    echo "📄 FILTERED (config-*):"
-    cat configs.txt || echo "❌ No matching configs"
+    steps:
+      - uses: actions/checkout@v4
 
-    echo ""
-    echo "🔍 STEP 3: PRINT TABLE"
-    echo "--------------------------------------------------"
-    printf "%-20s %-15s %-20s\n" "CLIENT" "IP" "NETWORK"
-    echo "--------------------------------------------------"
+      # 🔐 Azure Login (updated version ✅)
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          creds: |
+            {
+              "clientId": "${{ secrets.ARM_CLIENT_ID }}",
+              "clientSecret": "${{ secrets.ARM_CLIENT_SECRET }}",
+              "subscriptionId": "${{ secrets.ARM_SUBSCRIPTION_ID }}",
+              "tenantId": "${{ secrets.ARM_TENANT_ID }}"
+            }
 
-    if [ ! -s configs.txt ]; then
-      echo "❌ NO CONFIG FILES FOUND"
-      echo "👉 Your secrets are probably NOT named like: config-sap"
-      exit 0
-    fi
+      # 🔍 FULL DEBUG + LIST + PARSE
+      - name: Fetch and Display Configs
+        run: |
+          echo "=============================="
+          echo "🔍 STEP 1: GET ALL SECRETS"
+          echo "=============================="
 
-    while read secret; do
-      echo ""
-      echo "👉 Reading: $secret"
+          az keyvault secret list \
+            --vault-name "${{ secrets.AZURE_VAULT_NAME }}" \
+            --query "[].name" -o tsv > all.txt
 
-      value=$(az keyvault secret show \
-        --vault-name "${{ secrets.AZURE_VAULT_NAME }}" \
-        --name "$secret" \
-        --query value -o tsv)
+          if [ ! -s all.txt ]; then
+            echo "❌ NO SECRETS FOUND IN KEY VAULT"
+            exit 0
+          fi
 
-      echo "RAW VALUE:"
-      echo "$value"
+          echo ""
+          echo "📄 ALL SECRETS:"
+          cat all.txt
 
-      # Try parsing
-      client=$(echo "$value" | jq -r '.client // "N/A"')
-      ip=$(echo "$value" | jq -r '.ip // "N/A"')
-      network=$(echo "$value" | jq -r '.network // "N/A"')
+          echo ""
+          echo "=============================="
+          echo "🔍 STEP 2: FILTER (config-*)"
+          echo "=============================="
 
-      printf "%-20s %-15s %-20s\n" "$client" "$ip" "$network"
+          grep '^config-' all.txt > configs.txt || true
 
-    done < configs.txt
+          echo ""
+          echo "📄 FILTERED RESULTS:"
+          cat configs.txt || echo "❌ No matching config-* secrets"
 
-    echo "--------------------------------------------------"
+          echo ""
+          echo "=============================="
+          echo "📋 STEP 3: PARSE CONFIGS"
+          echo "=============================="
+
+          echo "--------------------------------------------------"
+          printf "%-20s %-15s %-20s\n" "CLIENT" "IP" "NETWORK"
+          echo "--------------------------------------------------"
+
+          if [ ! -s configs.txt ]; then
+            echo "❌ NO CONFIG FILES FOUND"
+            echo "👉 Rename secrets to: config-sap, config-dev, etc"
+            echo "👉 OR remove filter if using different names"
+            exit 0
+          fi
+
+          while read secret; do
+            [ -z "$secret" ] && continue
+
+            echo ""
+            echo "👉 Reading secret: $secret"
+
+            value=$(az keyvault secret show \
+              --vault-name "${{ secrets.AZURE_VAULT_NAME }}" \
+              --name "$secret" \
+              --query value -o tsv)
+
+            echo "RAW VALUE:"
+            echo "$value"
+
+            # Safe JSON parsing
+            client=$(echo "$value" | jq -r '.client // "N/A"')
+            ip=$(echo "$value" | jq -r '.ip // "N/A"')
+            network=$(echo "$value" | jq -r '.network // "N/A"')
+
+            printf "%-20s %-15s %-20s\n" "$client" "$ip" "$network"
+
+          done < configs.txt
+
+          echo "--------------------------------------------------"
+
+          echo ""
+          echo "=============================="
+          echo "📦 STEP 4: CREATE JSON LIST"
+          echo "=============================="
+
+          jq -R -s -c 'split("\n")[:-1]' configs.txt > configs.json
+
+          echo "JSON OUTPUT:"
+          cat configs.json
+
+          echo ""
+          echo "=============================="
+          echo "🎯 STEP 5: DROPDOWN FORMAT"
+          echo "=============================="
+
+          while read line; do
+            echo "  - $line"
+          done < configs.txt || true
+
+      # 📦 Upload artifact
+      - name: Upload config list
+        uses: actions/upload-artifact@v4
+        with:
+          name: config-list
+          path: |
+            all.txt
+            configs.txt
+            configs.json
