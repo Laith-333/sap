@@ -6,28 +6,17 @@ variable "resource_group_name" {
   default = "SAP_Environment_RG"
 }
 
-variable "location" {
-  default = "italynorth"
+variable "key_vault_name" {
+  description = "Existing Azure Key Vault name"
+  type        = string
 }
 
-variable "vnet_name" {
-  default = "SAP_Environment_Network"
+variable "secret_name" {
+  description = "Name of the secret to store"
+  type        = string
 }
 
-variable "subnet_name" {
-  default = "Subnet_Secrets"
-}
-
-variable "vnet_address_space" {
-  default = ["10.0.0.0/16"]
-}
-
-variable "subnet_prefix" {
-  default = ["10.0.0.0/27"]
-}
-
-variable "tags" {
-  default = {
-    pipelines = "secrets"
-  }
+variable "file_path" {
+  description = "Path to file to upload"
+  type        = string
 }
