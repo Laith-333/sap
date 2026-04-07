@@ -32,7 +32,7 @@ variable "tags" {
   }
 }
 
-# 🔥 NEW VARIABLES
+# 🔥 REQUIRED FOR PIPELINE
 
 variable "action" {
   type    = string
