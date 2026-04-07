@@ -1,25 +1,70 @@
+# -------------------------
+# VARIABLES
+# -------------------------
+
+variable "subscription_id" {
+  default = "e8fd00c7-068f-4e91-9d44-5e9cdaf82185"
+}
+
+variable "resource_group_name" {
+  default = "SAP_Enveriment_RG"
+}
+
+variable "location" {
+  default = "italynorth"
+}
+
+variable "vnet_name" {
+  default = "SAP_Enveriment_Network"
+}
+
+variable "subnet_name" {
+  default = "Subnet_Secrets"
+}
+
+variable "vnet_address_space" {
+  default = ["10.0.0.0/16"]
+}
+
+variable "subnet_prefix" {
+  default = ["10.0.0.0/27"]
+}
+
+variable "tags" {
+  default = {
+    pipelines = "secrets"
+  }
+}
+
+# -------------------------
+# PROVIDER
+# -------------------------
+
 provider "azurerm" {
   features {}
-
   subscription_id = var.subscription_id
 }
 
-# Detect current identity (GitHub / Terraform)
+# -------------------------
+# DATA
+# -------------------------
+
 data "azurerm_client_config" "current" {}
 
 # -------------------------
-# Resource Group
+# RESOURCE GROUP
 # -------------------------
+
 resource "azurerm_resource_group" "rg" {
   name     = var.resource_group_name
   location = var.location
-
-  tags = var.tags
+  tags     = var.tags
 }
 
 # -------------------------
-# Virtual Network
+# VIRTUAL NETWORK
 # -------------------------
+
 resource "azurerm_virtual_network" "vnet" {
   name                = var.vnet_name
   location            = azurerm_resource_group.rg.location
@@ -30,8 +75,9 @@ resource "azurerm_virtual_network" "vnet" {
 }
 
 # -------------------------
-# Subnet
+# SUBNET
 # -------------------------
+
 resource "azurerm_subnet" "subnet_secrets" {
   name                 = var.subnet_name
   resource_group_name  = azurerm_resource_group.rg.name
@@ -41,8 +87,9 @@ resource "azurerm_subnet" "subnet_secrets" {
 }
 
 # -------------------------
-# Key Vault
+# KEY VAULT
 # -------------------------
+
 resource "azurerm_key_vault" "kv" {
   name                = "peiplnessecrets123"
   location            = azurerm_resource_group.rg.location
@@ -58,14 +105,13 @@ resource "azurerm_key_vault" "kv" {
 }
 
 # -------------------------
-# ✅ ACCESS (ONLY ONE POLICY — CLEAN)
+# ACCESS POLICY
 # -------------------------
+
 resource "azurerm_key_vault_access_policy" "current_user" {
   key_vault_id = azurerm_key_vault.kv.id
 
   tenant_id = data.azurerm_client_config.current.tenant_id
-
-  # 🔥 auto-detect (works locally + GitHub)
   object_id = data.azurerm_client_config.current.object_id
 
   secret_permissions = [
@@ -82,8 +128,9 @@ resource "azurerm_key_vault_access_policy" "current_user" {
 }
 
 # -------------------------
-# ⏳ Wait for permissions
+# WAIT FOR PERMISSIONS
 # -------------------------
+
 resource "time_sleep" "wait_for_permissions" {
   depends_on = [
     azurerm_key_vault_access_policy.current_user
@@ -93,8 +140,9 @@ resource "time_sleep" "wait_for_permissions" {
 }
 
 # -------------------------
-# Secrets
+# SECRETS
 # -------------------------
+
 resource "azurerm_key_vault_secret" "pipelines" {
   name         = "pipelines-config"
   value        = file("${path.module}/pipelines.env")
