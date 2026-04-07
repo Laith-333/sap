@@ -32,6 +32,7 @@ variable "tags" {
   }
 }
 
+# 🔥 NEW (for GitHub inputs)
 variable "pipelines_config" {
   type    = string
   default = ""
@@ -45,3 +46,4 @@ variable "microsoft_config" {
 variable "jumbo_config" {
   type    = string
   default = ""
+}
