@@ -32,9 +32,16 @@ variable "tags" {
   }
 }
 
-# 🔥 NEW
+# 🔥 NEW VARIABLES
+
+variable "action" {
+  type    = string
+  default = "use_existing_file"
+}
+
 variable "target_secret" {
-  type = string
+  type    = string
+  default = "pipelines"
 }
 
 variable "secret_value" {
