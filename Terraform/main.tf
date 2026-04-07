@@ -2,6 +2,7 @@ terraform {
   required_providers {
     azurerm = {
       source  = "hashicorp/azurerm"
+      version = "~> 3.0"
     }
   }
 }
@@ -12,7 +13,7 @@ provider "azurerm" {
 }
 
 # -------------------------
-# Reference existing Key Vault
+# READ existing Key Vault (DATA = read only)
 # -------------------------
 data "azurerm_key_vault" "kv" {
   name                = var.key_vault_name
@@ -20,7 +21,7 @@ data "azurerm_key_vault" "kv" {
 }
 
 # -------------------------
-# Upload file as secret
+# CREATE secret inside Key Vault
 # -------------------------
 resource "azurerm_key_vault_secret" "config" {
   name         = var.secret_name
