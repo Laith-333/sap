@@ -1,13 +1,29 @@
-name: Terraform Infrastructure Deploy
+name: Upload Secret to Key Vault (Terraform)
 
 on:
-  push:
-    branches:
-      - main
+  workflow_dispatch:
+    inputs:
+      client_name:
+        description: "Client name (e.g. sap, microsoft)"
+        required: true
+
+      server_ip:
+        description: "Server IP"
+        required: true
+
+      network:
+        description: "Network"
+        required: true
+        type: choice
+        options:
+          - production-network
+          - staging-network
+          - dev-network
+          - dmz-network
 
 jobs:
   terraform:
-    name: Run Terraform
+    name: Upload Config via Terraform
     runs-on: ubuntu-latest
 
     defaults:
@@ -21,17 +37,40 @@ jobs:
       ARM_TENANT_ID: ${{ secrets.ARM_TENANT_ID }}
 
     steps:
+      # 📥 Checkout
       - name: Checkout
         uses: actions/checkout@v4
 
+      # 📄 Create config file
+      - name: Create config.json
+        run: |
+          echo '{
+            "client": "${{ github.event.inputs.client_name }}",
+            "ip": "${{ github.event.inputs.server_ip }}",
+            "network": "${{ github.event.inputs.network }}"
+          }' > ../config.json
+
+          echo "Generated config:"
+          cat ../config.json
+
+      # ⚙️ Setup Terraform
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
 
+      # 🚀 Init
       - name: Terraform Init
         run: terraform init
 
+      # 🔍 Plan
       - name: Terraform Plan
-        run: terraform plan
+        run: |
+          terraform plan \
+            -var="secret_name=config-${{ github.event.inputs.client_name }}" \
+            -var="file_path=../config.json"
 
+      # 🚀 Apply
       - name: Terraform Apply
-        run: terraform apply -auto-approve
+        run: |
+          terraform apply -auto-approve \
+            -var="secret_name=config-${{ github.event.inputs.client_name }}" \
+            -var="file_path=../config.json"
