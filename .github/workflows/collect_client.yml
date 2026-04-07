@@ -1,67 +1,45 @@
-name: Export Key Vault Config List
+- name: Fetch config list
+  run: |
+    echo "🔍 Fetching client configs from Key Vault..."
 
-on:
-  workflow_dispatch:
+    az keyvault secret list \
+      --vault-name "${{ secrets.AZURE_VAULT_NAME }}" \
+      --query "[].name" -o tsv > all.txt
 
-jobs:
-  export-configs:
-    runs-on: ubuntu-latest
+    # Filter safely (no crash if empty)
+    grep '^config-' all.txt > configs.txt || true
 
-    steps:
-      - uses: actions/checkout@v4
+    echo ""
+    echo "📋 Available Clients:"
+    echo "----------------------"
 
-      # 🔐 Azure Login
-      - name: Azure Login
-        uses: azure/login@v1
-        with:
-          creds: |
-            {
-              "clientId": "${{ secrets.ARM_CLIENT_ID }}",
-              "clientSecret": "${{ secrets.ARM_CLIENT_SECRET }}",
-              "subscriptionId": "${{ secrets.ARM_SUBSCRIPTION_ID }}",
-              "tenantId": "${{ secrets.ARM_TENANT_ID }}"
-            }
+    if [ ! -s configs.txt ]; then
+      echo "❌ No configs found (check naming: config-*)"
+    else
+      i=1
+      while read line; do
+        echo "$i) $line"
+        i=$((i+1))
+      done < configs.txt
+    fi
 
-      # 📋 Fetch configs
-      - name: Fetch config list
-        run: |
-          echo "🔍 Fetching client configs from Key Vault..."
+    echo "----------------------"
 
-          az keyvault secret list \
-            --vault-name "${{ secrets.AZURE_VAULT_NAME }}" \
-            --query "[].name" -o tsv | grep '^config-' > configs.txt
+    # JSON output (safe)
+    if [ -s configs.txt ]; then
+      jq -R -s -c 'split("\n")[:-1]' configs.txt > configs.json
+    else
+      echo "[]" > configs.json
+    fi
 
-          echo ""
-          echo "📋 Available Clients:"
-          echo "----------------------"
+    echo ""
+    echo "📦 JSON Output:"
+    cat configs.json
 
-          i=1
-          while read line; do
-            echo "$i) $line"
-            i=$((i+1))
-          done < configs.txt
-
-          echo "----------------------"
-
-          # ✅ Create JSON
-          jq -R -s -c 'split("\n")[:-1]' configs.txt > configs.json
-
-          # ✅ Create dropdown-ready format
-          echo ""
-          echo "🎯 COPY THIS INTO YOUR WORKFLOW:"
-          echo "--------------------------------"
-
-          while read line; do
-            echo "  - $line"
-          done < configs.txt
-
-          echo "--------------------------------"
-
-      # 📦 Upload artifact
-      - name: Upload config list
-        uses: actions/upload-artifact@v4
-        with:
-          name: config-list
-          path: |
-            configs.txt
-            configs.json
+    echo ""
+    echo "🎯 Dropdown format:"
+    echo "----------------------"
+    while read line; do
+      echo "  - $line"
+    done < configs.txt || true
+    echo "----------------------"
