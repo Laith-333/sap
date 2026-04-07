@@ -1,19 +1,27 @@
-name: Create / Update Client Config (Key Vault)
+name: Create / Use Client Config (Key Vault)
 
 on:
   workflow_dispatch:
     inputs:
+      mode:
+        description: "Choose action"
+        required: true
+        type: choice
+        options:
+          - create-new
+          - use-existing
+
       client_name:
-        description: "Client Name (existing OR new)"
+        description: "Client Name (e.g. sap, microsoft)"
         required: true
 
       server_ip:
-        description: "Server IP Address"
-        required: true
+        description: "Server IP (ONLY for new)"
+        required: false
 
       network:
-        description: "Network / Subnet"
-        required: true
+        description: "Network (ONLY for new)"
+        required: false
         type: choice
         options:
           - production-network
@@ -22,15 +30,16 @@ on:
           - dmz-network
 
       service:
-        description: "Service Type"
-        required: true
+        description: "Service Type (ONLY for new)"
+        required: false
         default: "web"
 
 jobs:
-  upload-config:
+  handle-client:
     runs-on: ubuntu-latest
 
     steps:
+      # 📥 Checkout
       - uses: actions/checkout@v4
 
       # 🔐 Azure Login
@@ -45,12 +54,11 @@ jobs:
               "tenantId": "${{ secrets.ARM_TENANT_ID }}"
             }
 
-      # 🔥 STEP 1: SHOW CLIENTS FIRST
+      # 📋 Show existing clients (for reference)
       - name: Show existing clients
         run: |
-          echo ""
           echo "=============================="
-          echo "📋 EXISTING CLIENTS"
+          echo "📋 EXISTING CLIENTS:"
           echo "=============================="
 
           az keyvault secret list \
@@ -59,16 +67,7 @@ jobs:
 
           echo "=============================="
 
-      # 🔍 Validate IP
-      - name: Validate IP
-        run: |
-          IP="${{ github.event.inputs.server_ip }}"
-          if ! [[ $IP =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]]; then
-            echo "❌ Invalid IP"
-            exit 1
-          fi
-
-      # 🧠 Generate safe name
+      # 🧠 Generate safe secret name
       - name: Generate secret name
         id: naming
         run: |
@@ -76,45 +75,53 @@ jobs:
           SAFE=$(echo "$RAW" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9-' '-')
           echo "secret_name=$SAFE" >> $GITHUB_OUTPUT
 
-      # 🔥 STEP 2: CHECK EXISTENCE
-      - name: Check if client exists
-        id: check
+      # 🔥 CORE LOGIC (create OR load)
+      - name: Handle mode (create or use)
         run: |
-          NAME="${{ steps.naming.outputs.secret_name }}"
+          MODE="${{ github.event.inputs.mode }}"
+          SECRET="${{ steps.naming.outputs.secret_name }}"
 
-          EXISTS=$(az keyvault secret list \
-            --vault-name "${{ secrets.AZURE_VAULT_NAME }}" \
-            --query "[?name=='$NAME'] | length(@)")
+          echo "Mode selected: $MODE"
+          echo "Using secret: $SECRET"
 
-          if [ "$EXISTS" -gt 0 ]; then
-            echo ""
-            echo "⚠️ CLIENT EXISTS → WILL UPDATE"
-            echo "exists=true" >> $GITHUB_OUTPUT
+          if [ "$MODE" = "use-existing" ]; then
+            echo "📥 Loading existing client config..."
+
+            az keyvault secret show \
+              --vault-name "${{ secrets.AZURE_VAULT_NAME }}" \
+              --name "$SECRET" \
+              --query value -o tsv > config.json
+
+            echo "Loaded config:"
+            cat config.json
+
           else
-            echo ""
-            echo "✅ NEW CLIENT → WILL CREATE"
-            echo "exists=false" >> $GITHUB_OUTPUT
+            echo "🆕 Creating new config..."
+
+            # Validate IP (only for new)
+            IP="${{ github.event.inputs.server_ip }}"
+            if ! [[ $IP =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]]; then
+              echo "❌ Invalid IP"
+              exit 1
+            fi
+
+            jq -n \
+              --arg client "${{ github.event.inputs.client_name }}" \
+              --arg ip "$IP" \
+              --arg net "${{ github.event.inputs.network }}" \
+              --arg svc "${{ github.event.inputs.service }}" \
+              '{
+                client_name: $client,
+                server_ip: $ip,
+                network: $net,
+                service: $svc
+              }' > config.json
+
+            echo "New config created:"
+            cat config.json
           fi
 
-      # 📄 Create config
-      - name: Create config file
-        run: |
-          jq -n \
-            --arg client "${{ github.event.inputs.client_name }}" \
-            --arg ip "${{ github.event.inputs.server_ip }}" \
-            --arg net "${{ github.event.inputs.network }}" \
-            --arg svc "${{ github.event.inputs.service }}" \
-            '{
-              client_name: $client,
-              server_ip: $ip,
-              network: $net,
-              service: $svc
-            }' > config.json
-
-          echo "Generated config:"
-          cat config.json
-
-      # 🔐 Upload
+      # 🔐 Upload / Update in Key Vault
       - name: Upload to Key Vault
         run: |
           az keyvault secret set \
@@ -122,4 +129,4 @@ jobs:
             --name "${{ steps.naming.outputs.secret_name }}" \
             --file config.json
 
-          echo "✅ Upload completed"
+          echo "✅ Config uploaded/updated successfully"
