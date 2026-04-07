@@ -1,13 +1,16 @@
 variable "subscription_id" {
-  default = "e8fd00c7-068f-4e91-9d44-5e9cdaf82185"
+  description = "Azure Subscription ID"
+  default     = "e8fd00c7-068f-4e91-9d44-5e9cdaf82185"
 }
 
 variable "resource_group_name" {
-  default = "SAP_Environment_RG"
+  description = "Resource group where Key Vault exists"
+  default     = "SAP_Environment_RG"
 }
 
 variable "key_vault_name" {
-  default = "peiplnessecrets8ie6i"
+  description = "Existing Key Vault name"
+  default     = "peiplnessecrets8ie6i"
 }
 
 variable "secret_name" {
@@ -16,6 +19,6 @@ variable "secret_name" {
 }
 
 variable "file_path" {
-  description = "Path to file"
+  description = "Path to file to upload"
   type        = string
 }
