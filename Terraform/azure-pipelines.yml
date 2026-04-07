@@ -1,4 +1,4 @@
-name: Terraform Deploy (Clean)
+name: Terraform Deploy (Clean Fixed)
 
 on:
   push:
