@@ -5,7 +5,7 @@ on:
     branches:
       - main
 
-  # 🔥 NEW: manual run with inputs
+  # 🔥 manual run with inputs
   workflow_dispatch:
     inputs:
       pipelines_config:
@@ -43,16 +43,18 @@ jobs:
       - name: Terraform Init
         run: terraform init
 
-      # ✅ Plan
+      # ✅ FIXED (multiline works)
       - name: Terraform Plan
-        run: terraform plan \
-          -var="pipelines_config=${{ github.event.inputs.pipelines_config }}" \
-          -var="microsoft_config=${{ github.event.inputs.microsoft_config }}" \
-          -var="jumbo_config=${{ github.event.inputs.jumbo_config }}"
+        run: |
+          terraform plan \
+            -var="pipelines_config=${{ github.event.inputs.pipelines_config }}" \
+            -var="microsoft_config=${{ github.event.inputs.microsoft_config }}" \
+            -var="jumbo_config=${{ github.event.inputs.jumbo_config }}"
 
-      # ✅ Apply
+      # ✅ FIXED (multiline works)
       - name: Terraform Apply
-        run: terraform apply -auto-approve \
-          -var="pipelines_config=${{ github.event.inputs.pipelines_config }}" \
-          -var="microsoft_config=${{ github.event.inputs.microsoft_config }}" \
-          -var="jumbo_config=${{ github.event.inputs.jumbo_config }}"
+        run: |
+          terraform apply -auto-approve \
+            -var="pipelines_config=${{ github.event.inputs.pipelines_config }}" \
+            -var="microsoft_config=${{ github.event.inputs.microsoft_config }}" \
+            -var="jumbo_config=${{ github.event.inputs.jumbo_config }}"
