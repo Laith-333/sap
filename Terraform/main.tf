@@ -58,12 +58,14 @@ resource "azurerm_key_vault" "kv" {
 }
 
 # -------------------------
-# ✅ ACCESS FOR TERRAFORM (service principal)
+# ✅ ACCESS (ONLY ONE POLICY — CLEAN)
 # -------------------------
-resource "azurerm_key_vault_access_policy" "terraform" {
+resource "azurerm_key_vault_access_policy" "current_user" {
   key_vault_id = azurerm_key_vault.kv.id
 
   tenant_id = data.azurerm_client_config.current.tenant_id
+
+  # 🔥 auto-detect (works locally + GitHub)
   object_id = data.azurerm_client_config.current.object_id
 
   secret_permissions = [
@@ -73,28 +75,6 @@ resource "azurerm_key_vault_access_policy" "terraform" {
     "Delete"
   ]
 
-  # 🔥 FIX: allow portal to list keys
-  key_permissions = [
-    "Get",
-    "List"
-  ]
-}
-
-# -------------------------
-# ✅ ACCESS FOR YOU (FIXED)
-# -------------------------
-resource "azurerm_key_vault_access_policy" "your_user" {
-  key_vault_id = azurerm_key_vault.kv.id
-
-  tenant_id = data.azurerm_client_config.current.tenant_id
-  object_id = var.user_object_id
-
-  secret_permissions = [
-    "Get",
-    "List"
-  ]
-
-  # 🔥 FIX: required for Azure Portal
   key_permissions = [
     "Get",
     "List"
@@ -106,8 +86,7 @@ resource "azurerm_key_vault_access_policy" "your_user" {
 # -------------------------
 resource "time_sleep" "wait_for_permissions" {
   depends_on = [
-    azurerm_key_vault_access_policy.terraform,
-    azurerm_key_vault_access_policy.your_user
+    azurerm_key_vault_access_policy.current_user
   ]
 
   create_duration = "60s"
