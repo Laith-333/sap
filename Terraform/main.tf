@@ -6,6 +6,15 @@ provider "azurerm" {
 data "azurerm_client_config" "current" {}
 
 # -------------------------
+# Random suffix (FIX for Key Vault name)
+# -------------------------
+resource "random_string" "suffix" {
+  length  = 5
+  special = false
+  upper   = false
+}
+
+# -------------------------
 # Resource Group
 # -------------------------
 resource "azurerm_resource_group" "rg" {
@@ -38,10 +47,10 @@ resource "azurerm_subnet" "subnet_secrets" {
 }
 
 # -------------------------
-# Key Vault
+# Key Vault (FIXED name)
 # -------------------------
 resource "azurerm_key_vault" "kv" {
-  name                = "peiplnessecrets123"
+  name                = "peiplnessecrets${random_string.suffix.result}"
   location            = azurerm_resource_group.rg.location
   resource_group_name = azurerm_resource_group.rg.name
 
