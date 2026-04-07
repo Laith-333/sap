@@ -1,60 +1,13 @@
-# -------------------------
-# VARIABLES
-# -------------------------
-
-variable "subscription_id" {
-  default = "e8fd00c7-068f-4e91-9d44-5e9cdaf82185"
-}
-
-variable "resource_group_name" {
-  default = "SAP_Enveriment_RG"
-}
-
-variable "location" {
-  default = "italynorth"
-}
-
-variable "vnet_name" {
-  default = "SAP_Enveriment_Network"
-}
-
-variable "subnet_name" {
-  default = "Subnet_Secrets"
-}
-
-variable "vnet_address_space" {
-  default = ["10.0.0.0/16"]
-}
-
-variable "subnet_prefix" {
-  default = ["10.0.0.0/27"]
-}
-
-variable "tags" {
-  default = {
-    pipelines = "secrets"
-  }
-}
-
-# -------------------------
-# PROVIDER
-# -------------------------
-
 provider "azurerm" {
   features {}
   subscription_id = var.subscription_id
 }
 
-# -------------------------
-# DATA
-# -------------------------
-
 data "azurerm_client_config" "current" {}
 
 # -------------------------
-# RESOURCE GROUP
+# Resource Group
 # -------------------------
-
 resource "azurerm_resource_group" "rg" {
   name     = var.resource_group_name
   location = var.location
@@ -62,9 +15,8 @@ resource "azurerm_resource_group" "rg" {
 }
 
 # -------------------------
-# VIRTUAL NETWORK
+# Virtual Network
 # -------------------------
-
 resource "azurerm_virtual_network" "vnet" {
   name                = var.vnet_name
   location            = azurerm_resource_group.rg.location
@@ -75,9 +27,8 @@ resource "azurerm_virtual_network" "vnet" {
 }
 
 # -------------------------
-# SUBNET
+# Subnet
 # -------------------------
-
 resource "azurerm_subnet" "subnet_secrets" {
   name                 = var.subnet_name
   resource_group_name  = azurerm_resource_group.rg.name
@@ -87,9 +38,8 @@ resource "azurerm_subnet" "subnet_secrets" {
 }
 
 # -------------------------
-# KEY VAULT
+# Key Vault
 # -------------------------
-
 resource "azurerm_key_vault" "kv" {
   name                = "peiplnessecrets123"
   location            = azurerm_resource_group.rg.location
@@ -105,64 +55,33 @@ resource "azurerm_key_vault" "kv" {
 }
 
 # -------------------------
-# ACCESS POLICY
+# Access Policy
 # -------------------------
-
 resource "azurerm_key_vault_access_policy" "current_user" {
   key_vault_id = azurerm_key_vault.kv.id
 
   tenant_id = data.azurerm_client_config.current.tenant_id
   object_id = data.azurerm_client_config.current.object_id
 
-  secret_permissions = [
-    "Get",
-    "List",
-    "Set",
-    "Delete"
-  ]
-
-  key_permissions = [
-    "Get",
-    "List"
-  ]
+  secret_permissions = ["Get", "List", "Set", "Delete"]
+  key_permissions    = ["Get", "List"]
 }
 
 # -------------------------
-# WAIT FOR PERMISSIONS
+# Wait
 # -------------------------
-
 resource "time_sleep" "wait_for_permissions" {
-  depends_on = [
-    azurerm_key_vault_access_policy.current_user
-  ]
-
+  depends_on = [azurerm_key_vault_access_policy.current_user]
   create_duration = "60s"
 }
 
 # -------------------------
-# SECRETS
+# OPTIONAL: use your config
 # -------------------------
-
-resource "azurerm_key_vault_secret" "pipelines" {
-  name         = "pipelines-config"
-  value        = file("${path.module}/pipelines.env")
-  key_vault_id = azurerm_key_vault.kv.id
-
-  depends_on = [time_sleep.wait_for_permissions]
+locals {
+  config = jsondecode(var.server_config)
 }
 
-resource "azurerm_key_vault_secret" "microsoft" {
-  name         = "microsoft-config"
-  value        = file("${path.module}/microsoft.env")
-  key_vault_id = azurerm_key_vault.kv.id
-
-  depends_on = [time_sleep.wait_for_permissions]
-}
-
-resource "azurerm_key_vault_secret" "jumbo" {
-  name         = "jumbo-config"
-  value        = file("${path.module}/jumbo.env")
-  key_vault_id = azurerm_key_vault.kv.id
-
-  depends_on = [time_sleep.wait_for_permissions]
+output "debug_server_ip" {
+  value = local.config.server_ip
 }
