@@ -1,0 +1,40 @@
+name: Export Key Vault Config List
+
+on:
+  workflow_dispatch:
+
+jobs:
+  export-configs:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # 🔐 Azure Login
+      - name: Azure Login
+        uses: azure/login@v1
+        with:
+          creds: |
+            {
+              "clientId": "${{ secrets.ARM_CLIENT_ID }}",
+              "clientSecret": "${{ secrets.ARM_CLIENT_SECRET }}",
+              "subscriptionId": "${{ secrets.ARM_SUBSCRIPTION_ID }}",
+              "tenantId": "${{ secrets.ARM_TENANT_ID }}"
+            }
+
+      # 📋 Fetch configs
+      - name: Fetch config list
+        run: |
+          az keyvault secret list \
+            --vault-name "${{ secrets.AZURE_VAULT_NAME }}" \
+            --query "[].name" -o tsv | grep '^client-' > configs.txt
+
+          echo "Configs:"
+          cat configs.txt
+
+      # 📦 Upload artifact
+      - name: Upload config list
+        uses: actions/upload-artifact@v4
+        with:
+          name: config-list
+          path: configs.txt
