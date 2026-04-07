@@ -1,45 +1,92 @@
-- name: Fetch config list
-  run: |
-    echo "🔍 Fetching client configs from Key Vault..."
+name: Export Key Vault Config List
 
-    az keyvault secret list \
-      --vault-name "${{ secrets.AZURE_VAULT_NAME }}" \
-      --query "[].name" -o tsv > all.txt
+on:
+  workflow_dispatch:
 
-    # Filter safely (no crash if empty)
-    grep '^config-' all.txt > configs.txt || true
+jobs:
+  export-configs:
+    runs-on: ubuntu-latest
 
-    echo ""
-    echo "📋 Available Clients:"
-    echo "----------------------"
+    steps:
+      - uses: actions/checkout@v4
 
-    if [ ! -s configs.txt ]; then
-      echo "❌ No configs found (check naming: config-*)"
-    else
-      i=1
-      while read line; do
-        echo "$i) $line"
-        i=$((i+1))
-      done < configs.txt
-    fi
+      # 🔐 Azure Login
+      - name: Azure Login
+        uses: azure/login@v1
+        with:
+          creds: |
+            {
+              "clientId": "${{ secrets.ARM_CLIENT_ID }}",
+              "clientSecret": "${{ secrets.ARM_CLIENT_SECRET }}",
+              "subscriptionId": "${{ secrets.ARM_SUBSCRIPTION_ID }}",
+              "tenantId": "${{ secrets.ARM_TENANT_ID }}"
+            }
 
-    echo "----------------------"
+      # 🔍 DEBUG (see all secrets)
+      - name: Debug - List all secrets
+        run: |
+          echo "🔍 All secrets in Key Vault:"
+          az keyvault secret list \
+            --vault-name "${{ secrets.AZURE_VAULT_NAME }}" \
+            --query "[].name" -o table
 
-    # JSON output (safe)
-    if [ -s configs.txt ]; then
-      jq -R -s -c 'split("\n")[:-1]' configs.txt > configs.json
-    else
-      echo "[]" > configs.json
-    fi
+      # 📋 Fetch configs (SAFE VERSION ✅)
+      - name: Fetch config list
+        run: |
+          echo ""
+          echo "🔍 Fetching client configs..."
 
-    echo ""
-    echo "📦 JSON Output:"
-    cat configs.json
+          # Get all secrets
+          az keyvault secret list \
+            --vault-name "${{ secrets.AZURE_VAULT_NAME }}" \
+            --query "[].name" -o tsv > all.txt
 
-    echo ""
-    echo "🎯 Dropdown format:"
-    echo "----------------------"
-    while read line; do
-      echo "  - $line"
-    done < configs.txt || true
-    echo "----------------------"
+          # Filter (SAFE - will not fail)
+          grep '^config-' all.txt > configs.txt || true
+
+          echo ""
+          echo "📋 Available Clients:"
+          echo "----------------------"
+
+          if [ ! -s configs.txt ]; then
+            echo "❌ No configs found"
+            echo "👉 Make sure your secrets are named like: config-sap"
+          else
+            i=1
+            while read line; do
+              echo "$i) $line"
+              i=$((i+1))
+            done < configs.txt
+          fi
+
+          echo "----------------------"
+
+          # JSON output (safe)
+          if [ -s configs.txt ]; then
+            jq -R -s -c 'split("\n")[:-1]' configs.txt > configs.json
+          else
+            echo "[]" > configs.json
+          fi
+
+          echo ""
+          echo "📦 JSON Output:"
+          cat configs.json
+
+          echo ""
+          echo "🎯 COPY THIS INTO YOUR WORKFLOW:"
+          echo "--------------------------------"
+
+          while read line; do
+            echo "  - $line"
+          done < configs.txt || true
+
+          echo "--------------------------------"
+
+      # 📦 Upload artifact
+      - name: Upload config list
+        uses: actions/upload-artifact@v4
+        with:
+          name: config-list
+          path: |
+            configs.txt
+            configs.json
