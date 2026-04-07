@@ -11,10 +11,8 @@ provider "azurerm" {
   subscription_id = var.subscription_id
 }
 
-data "azurerm_client_config" "current" {}
-
 # -------------------------
-# EXISTING Key Vault (reference only)
+# Reference existing Key Vault
 # -------------------------
 data "azurerm_key_vault" "kv" {
   name                = var.key_vault_name
@@ -22,9 +20,9 @@ data "azurerm_key_vault" "kv" {
 }
 
 # -------------------------
-# Upload Secret (FILE CONTENT)
+# Upload file as secret
 # -------------------------
-resource "azurerm_key_vault_secret" "upload" {
+resource "azurerm_key_vault_secret" "config" {
   name         = var.secret_name
   value        = file(var.file_path)
   key_vault_id = data.azurerm_key_vault.kv.id
