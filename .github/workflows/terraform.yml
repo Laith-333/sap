@@ -36,6 +36,9 @@ jobs:
       ARM_SUBSCRIPTION_ID: ${{ secrets.ARM_SUBSCRIPTION_ID }}
       ARM_TENANT_ID: ${{ secrets.ARM_TENANT_ID }}
 
+      # ✅ THIS FIXES THE ERROR
+      TF_VAR_subscription_id: ${{ secrets.ARM_SUBSCRIPTION_ID }}
+
     steps:
       # 📥 Checkout
       - name: Checkout
