@@ -1,4 +1,4 @@
-name: Terraform Deploy
+name: Terraform Infrastructure Deploy
 
 on:
   push:
@@ -7,13 +7,13 @@ on:
 
 jobs:
   terraform:
+    name: Run Terraform
     runs-on: ubuntu-latest
 
     defaults:
       run:
         working-directory: Terraform
 
-    # 🔐 Azure authentication
     env:
       ARM_CLIENT_ID: ${{ secrets.ARM_CLIENT_ID }}
       ARM_CLIENT_SECRET: ${{ secrets.ARM_CLIENT_SECRET }}
@@ -30,10 +30,8 @@ jobs:
       - name: Terraform Init
         run: terraform init
 
-      # ✅ FIXED (no variable)
       - name: Terraform Plan
         run: terraform plan
 
-      # ✅ FIXED (no variable)
       - name: Terraform Apply
         run: terraform apply -auto-approve
