@@ -32,18 +32,12 @@ variable "tags" {
   }
 }
 
-# 🔥 NEW (for GitHub inputs)
-variable "pipelines_config" {
-  type    = string
-  default = ""
+# 🔥 NEW
+variable "target_secret" {
+  type = string
 }
 
-variable "microsoft_config" {
-  type    = string
-  default = ""
-}
-
-variable "jumbo_config" {
+variable "secret_value" {
   type    = string
   default = ""
 }
