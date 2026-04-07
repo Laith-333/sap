@@ -13,7 +13,7 @@ jobs:
       run:
         working-directory: Terraform
 
-    # 🔥 AUTH FIX (VERY IMPORTANT)
+    # 🔐 Azure authentication
     env:
       ARM_CLIENT_ID: ${{ secrets.ARM_CLIENT_ID }}
       ARM_CLIENT_SECRET: ${{ secrets.ARM_CLIENT_SECRET }}
@@ -30,8 +30,10 @@ jobs:
       - name: Terraform Init
         run: terraform init
 
+      # 🔥 FIX: pass user_object_id
       - name: Terraform Plan
-        run: terraform plan
+        run: terraform plan -var="user_object_id=${{ secrets.USER_OBJECT_ID }}"
 
+      # 🔥 FIX: pass again here
       - name: Terraform Apply
-        run: terraform apply -auto-approve
+        run: terraform apply -auto-approve -var="user_object_id=${{ secrets.USER_OBJECT_ID }}"
