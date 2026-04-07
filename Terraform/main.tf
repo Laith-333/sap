@@ -58,63 +58,43 @@ resource "azurerm_key_vault" "kv" {
 }
 
 # -------------------------
-# ✅ ACCESS (ONLY ONE POLICY — CLEAN)
-# -------------------------
-resource "azurerm_key_vault_access_policy" "current_user" {
-  key_vault_id = azurerm_key_vault.kv.id
-
-  tenant_id = data.azurerm_client_config.current.tenant_id
-
-  # 🔥 auto-detect (works locally + GitHub)
-  object_id = data.azurerm_client_config.current.object_id
-
-  secret_permissions = [
-    "Get",
-    "List",
-    "Set",
-    "Delete"
-  ]
-
-  key_permissions = [
-    "Get",
-    "List"
-  ]
-}
-
-# -------------------------
-# ⏳ Wait for permissions
+# ⏳ Wait for Key Vault only (no policy!)
 # -------------------------
 resource "time_sleep" "wait_for_permissions" {
   depends_on = [
-    azurerm_key_vault_access_policy.current_user
+    azurerm_key_vault.kv
   ]
 
   create_duration = "60s"
 }
 
 # -------------------------
-# Secrets
+# Secrets (DYNAMIC INPUT SUPPORT)
 # -------------------------
 resource "azurerm_key_vault_secret" "pipelines" {
   name         = "pipelines-config"
-  value        = file("${path.module}/pipelines.env")
-  key_vault_id = azurerm_key_vault.kv.id
 
-  depends_on = [time_sleep.wait_for_permissions]
+  # 🔥 USE INPUT OR FALLBACK TO FILE
+  value = var.pipelines_config != "" ? var.pipelines_config : file("${path.module}/pipelines.env")
+
+  key_vault_id = azurerm_key_vault.kv.id
+  depends_on   = [time_sleep.wait_for_permissions]
 }
 
 resource "azurerm_key_vault_secret" "microsoft" {
   name         = "microsoft-config"
-  value        = file("${path.module}/microsoft.env")
-  key_vault_id = azurerm_key_vault.kv.id
 
-  depends_on = [time_sleep.wait_for_permissions]
+  value = var.microsoft_config != "" ? var.microsoft_config : file("${path.module}/microsoft.env")
+
+  key_vault_id = azurerm_key_vault.kv.id
+  depends_on   = [time_sleep.wait_for_permissions]
 }
 
 resource "azurerm_key_vault_secret" "jumbo" {
   name         = "jumbo-config"
-  value        = file("${path.module}/jumbo.env")
-  key_vault_id = azurerm_key_vault.kv.id
 
-  depends_on = [time_sleep.wait_for_permissions]
+  value = var.jumbo_config != "" ? var.jumbo_config : file("${path.module}/jumbo.env")
+
+  key_vault_id = azurerm_key_vault.kv.id
+  depends_on   = [time_sleep.wait_for_permissions]
 }
