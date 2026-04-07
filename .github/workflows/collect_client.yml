@@ -22,14 +22,14 @@ jobs:
               "tenantId": "${{ secrets.ARM_TENANT_ID }}"
             }
 
-      # 📋 Fetch configs (IMPROVED ✅)
+      # 📋 Fetch configs
       - name: Fetch config list
         run: |
           echo "🔍 Fetching client configs from Key Vault..."
 
           az keyvault secret list \
             --vault-name "${{ secrets.AZURE_VAULT_NAME }}" \
-            --query "[].name" -o tsv | grep '^client-' > configs.txt
+            --query "[].name" -o tsv | grep '^config-' > configs.txt
 
           echo ""
           echo "📋 Available Clients:"
@@ -43,12 +43,19 @@ jobs:
 
           echo "----------------------"
 
-          # Also create JSON list (useful later)
+          # ✅ Create JSON
           jq -R -s -c 'split("\n")[:-1]' configs.txt > configs.json
 
+          # ✅ Create dropdown-ready format
           echo ""
-          echo "📦 JSON Output:"
-          cat configs.json
+          echo "🎯 COPY THIS INTO YOUR WORKFLOW:"
+          echo "--------------------------------"
+
+          while read line; do
+            echo "  - $line"
+          done < configs.txt
+
+          echo "--------------------------------"
 
       # 📦 Upload artifact
       - name: Upload config list
