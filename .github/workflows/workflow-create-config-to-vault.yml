@@ -1,18 +1,18 @@
-name: Upload Config to Azure Key Vault
+name: Create Client Config & Upload to Key Vault
 
 on:
   workflow_dispatch:
     inputs:
-      server_name:
-        description: Server name
+      client_name:
+        description: "Client Name (e.g. SAP, Microsoft, Jumbo)"
         required: true
 
       server_ip:
-        description: Server IP
+        description: "Server IP Address"
         required: true
 
       network:
-        description: Network
+        description: "Network / Subnet"
         required: true
         type: choice
         options:
@@ -21,12 +21,17 @@ on:
           - dev-network
           - dmz-network
 
+      service:
+        description: "Service Type (web, db, api, etc.)"
+        required: true
+        default: "web"
+
 permissions:
   contents: read
 
 jobs:
   upload-config:
-    name: Generate + Upload Config
+    name: Generate Config & Upload
     runs-on: ubuntu-latest
 
     steps:
@@ -59,31 +64,34 @@ jobs:
       - name: Generate secret name
         id: naming
         run: |
-          RAW="config-${{ github.event.inputs.server_name }}"
-    SAFE=$(echo "$RAW" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9-' '-')
+          RAW="client-${{ github.event.inputs.client_name }}"
+          SAFE=$(echo "$RAW" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9-' '-')
           echo "secret_name=$SAFE" >> $GITHUB_OUTPUT
 
       # 📄 Create config JSON
-      - name: Create config
+      - name: Create config file
         run: |
           jq -n \
-            --arg name "${{ github.event.inputs.server_name }}" \
+            --arg client "${{ github.event.inputs.client_name }}" \
             --arg ip "${{ github.event.inputs.server_ip }}" \
             --arg net "${{ github.event.inputs.network }}" \
+            --arg svc "${{ github.event.inputs.service }}" \
             '{
-              server_name: $name,
+              client_name: $client,
               server_ip: $ip,
-              network: $net
+              network: $net,
+              service: $svc
             }' > config.json
 
+          echo "Generated config:"
           cat config.json
 
       # 🔐 Upload to Key Vault
-      - name: Upload to Key Vault
+      - name: Upload to Azure Key Vault
         run: |
           az keyvault secret set \
             --vault-name "${{ secrets.AZURE_VAULT_NAME }}" \
             --name "${{ steps.naming.outputs.secret_name }}" \
             --file config.json
 
-          echo "✅ Uploaded to Key Vault"
+          echo "✅ Config uploaded successfully"
