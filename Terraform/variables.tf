@@ -31,3 +31,17 @@ variable "tags" {
     pipelines = "secrets"
   }
 }
+
+variable "pipelines_config" {
+  type    = string
+  default = ""
+}
+
+variable "microsoft_config" {
+  type    = string
+  default = ""
+}
+
+variable "jumbo_config" {
+  type    = string
+  default = ""
