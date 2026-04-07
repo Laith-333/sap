@@ -57,7 +57,7 @@ resource "azurerm_key_vault" "kv" {
 }
 
 # -------------------------
-# Wait
+# Wait for KV
 # -------------------------
 resource "time_sleep" "wait_for_permissions" {
   depends_on = [azurerm_key_vault.kv]
@@ -65,7 +65,7 @@ resource "time_sleep" "wait_for_permissions" {
 }
 
 # -------------------------
-# Secrets (LOGIC BASED)
+# Secrets (FIXED SYNTAX)
 # -------------------------
 
 resource "azurerm_key_vault_secret" "pipelines" {
@@ -73,9 +73,7 @@ resource "azurerm_key_vault_secret" "pipelines" {
 
   name = "pipelines-config"
 
-  value = var.action == "create_new" && var.secret_value != ""
-    ? var.secret_value
-    : file("${path.module}/pipelines.env")
+  value = var.action == "create_new" && var.secret_value != "" ? var.secret_value : file("${path.module}/pipelines.env")
 
   key_vault_id = azurerm_key_vault.kv.id
   depends_on   = [time_sleep.wait_for_permissions]
@@ -86,9 +84,7 @@ resource "azurerm_key_vault_secret" "microsoft" {
 
   name = "microsoft-config"
 
-  value = var.action == "create_new" && var.secret_value != ""
-    ? var.secret_value
-    : file("${path.module}/microsoft.env")
+  value = var.action == "create_new" && var.secret_value != "" ? var.secret_value : file("${path.module}/microsoft.env")
 
   key_vault_id = azurerm_key_vault.kv.id
   depends_on   = [time_sleep.wait_for_permissions]
@@ -99,9 +95,7 @@ resource "azurerm_key_vault_secret" "jumbo" {
 
   name = "jumbo-config"
 
-  value = var.action == "create_new" && var.secret_value != ""
-    ? var.secret_value
-    : file("${path.module}/jumbo.env")
+  value = var.action == "create_new" && var.secret_value != "" ? var.secret_value : file("${path.module}/jumbo.env")
 
   key_vault_id = azurerm_key_vault.kv.id
   depends_on   = [time_sleep.wait_for_permissions]
