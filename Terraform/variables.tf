@@ -36,3 +36,6 @@ variable "tags" {
     pipelines = "secrets"
   }
 }
+
+variable "create_policy" {
+  default = false
