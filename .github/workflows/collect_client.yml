@@ -1,59 +1,53 @@
-name: Export Key Vault Config List
+- name: Fetch full config list
+  run: |
+    echo "🔍 STEP 1: Get ALL secrets"
+    az keyvault secret list \
+      --vault-name "${{ secrets.AZURE_VAULT_NAME }}" \
+      --query "[].name" -o tsv > all.txt
 
-on:
-  workflow_dispatch:
+    echo ""
+    echo "📄 ALL SECRETS:"
+    cat all.txt || echo "❌ No secrets found at all"
 
-jobs:
-  export-configs:
-    runs-on: ubuntu-latest
+    echo ""
+    echo "🔍 STEP 2: Filter config-*"
+    grep '^config-' all.txt > configs.txt || true
 
-    steps:
-      - uses: actions/checkout@v4
+    echo ""
+    echo "📄 FILTERED (config-*):"
+    cat configs.txt || echo "❌ No matching configs"
 
-      # 🔐 Azure Login
-      - name: Azure Login
-        uses: azure/login@v1
-        with:
-          creds: |
-            {
-              "clientId": "${{ secrets.ARM_CLIENT_ID }}",
-              "clientSecret": "${{ secrets.ARM_CLIENT_SECRET }}",
-              "subscriptionId": "${{ secrets.ARM_SUBSCRIPTION_ID }}",
-              "tenantId": "${{ secrets.ARM_TENANT_ID }}"
-            }
+    echo ""
+    echo "🔍 STEP 3: PRINT TABLE"
+    echo "--------------------------------------------------"
+    printf "%-20s %-15s %-20s\n" "CLIENT" "IP" "NETWORK"
+    echo "--------------------------------------------------"
 
-      # 📋 Fetch + READ configs ✅
-      - name: Fetch full config list
-        run: |
-          echo "🔍 Fetching configs..."
+    if [ ! -s configs.txt ]; then
+      echo "❌ NO CONFIG FILES FOUND"
+      echo "👉 Your secrets are probably NOT named like: config-sap"
+      exit 0
+    fi
 
-          az keyvault secret list \
-            --vault-name "${{ secrets.AZURE_VAULT_NAME }}" \
-            --query "[].name" -o tsv > all.txt
+    while read secret; do
+      echo ""
+      echo "👉 Reading: $secret"
 
-          grep '^config-' all.txt > configs.txt || true
+      value=$(az keyvault secret show \
+        --vault-name "${{ secrets.AZURE_VAULT_NAME }}" \
+        --name "$secret" \
+        --query value -o tsv)
 
-          echo ""
-          echo "📋 CLIENT CONFIGS:"
-          echo "--------------------------------------------------"
-          printf "%-20s %-15s %-20s\n" "CLIENT" "IP" "NETWORK"
-          echo "--------------------------------------------------"
+      echo "RAW VALUE:"
+      echo "$value"
 
-          while read secret; do
-            [ -z "$secret" ] && continue
+      # Try parsing
+      client=$(echo "$value" | jq -r '.client // "N/A"')
+      ip=$(echo "$value" | jq -r '.ip // "N/A"')
+      network=$(echo "$value" | jq -r '.network // "N/A"')
 
-            value=$(az keyvault secret show \
-              --vault-name "${{ secrets.AZURE_VAULT_NAME }}" \
-              --name "$secret" \
-              --query value -o tsv)
+      printf "%-20s %-15s %-20s\n" "$client" "$ip" "$network"
 
-            # Parse JSON
-            client=$(echo "$value" | jq -r '.client')
-            ip=$(echo "$value" | jq -r '.ip')
-            network=$(echo "$value" | jq -r '.network')
+    done < configs.txt
 
-            printf "%-20s %-15s %-20s\n" "$client" "$ip" "$network"
-
-          done < configs.txt
-
-          echo "--------------------------------------------------"
+    echo "--------------------------------------------------"
