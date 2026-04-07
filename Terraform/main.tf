@@ -4,7 +4,6 @@ provider "azurerm" {
   subscription_id = var.subscription_id
 }
 
-# Detect current identity (GitHub / Terraform)
 data "azurerm_client_config" "current" {}
 
 # -------------------------
@@ -58,42 +57,45 @@ resource "azurerm_key_vault" "kv" {
 }
 
 # -------------------------
-# ⏳ Wait for Key Vault only (no policy!)
+# Wait
 # -------------------------
 resource "time_sleep" "wait_for_permissions" {
-  depends_on = [
-    azurerm_key_vault.kv
-  ]
-
+  depends_on = [azurerm_key_vault.kv]
   create_duration = "60s"
 }
 
 # -------------------------
-# Secrets (DYNAMIC INPUT SUPPORT)
+# Secrets (SMART LOGIC)
 # -------------------------
-resource "azurerm_key_vault_secret" "pipelines" {
-  name         = "pipelines-config"
 
-  # 🔥 USE INPUT OR FALLBACK TO FILE
-  value = var.pipelines_config != "" ? var.pipelines_config : file("${path.module}/pipelines.env")
+resource "azurerm_key_vault_secret" "pipelines" {
+  count = var.target_secret == "pipelines" ? 1 : 0
+
+  name = "pipelines-config"
+
+  value = var.secret_value != "" ? var.secret_value : file("${path.module}/pipelines.env")
 
   key_vault_id = azurerm_key_vault.kv.id
   depends_on   = [time_sleep.wait_for_permissions]
 }
 
 resource "azurerm_key_vault_secret" "microsoft" {
-  name         = "microsoft-config"
+  count = var.target_secret == "microsoft" ? 1 : 0
 
-  value = var.microsoft_config != "" ? var.microsoft_config : file("${path.module}/microsoft.env")
+  name = "microsoft-config"
+
+  value = var.secret_value != "" ? var.secret_value : file("${path.module}/microsoft.env")
 
   key_vault_id = azurerm_key_vault.kv.id
   depends_on   = [time_sleep.wait_for_permissions]
 }
 
 resource "azurerm_key_vault_secret" "jumbo" {
-  name         = "jumbo-config"
+  count = var.target_secret == "jumbo" ? 1 : 0
 
-  value = var.jumbo_config != "" ? var.jumbo_config : file("${path.module}/jumbo.env")
+  name = "jumbo-config"
+
+  value = var.secret_value != "" ? var.secret_value : file("${path.module}/jumbo.env")
 
   key_vault_id = azurerm_key_vault.kv.id
   depends_on   = [time_sleep.wait_for_permissions]
