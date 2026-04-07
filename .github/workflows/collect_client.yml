@@ -22,71 +22,38 @@ jobs:
               "tenantId": "${{ secrets.ARM_TENANT_ID }}"
             }
 
-      # 🔍 DEBUG (see all secrets)
-      - name: Debug - List all secrets
+      # 📋 Fetch + READ configs ✅
+      - name: Fetch full config list
         run: |
-          echo "🔍 All secrets in Key Vault:"
-          az keyvault secret list \
-            --vault-name "${{ secrets.AZURE_VAULT_NAME }}" \
-            --query "[].name" -o table
+          echo "🔍 Fetching configs..."
 
-      # 📋 Fetch configs (SAFE VERSION ✅)
-      - name: Fetch config list
-        run: |
-          echo ""
-          echo "🔍 Fetching client configs..."
-
-          # Get all secrets
           az keyvault secret list \
             --vault-name "${{ secrets.AZURE_VAULT_NAME }}" \
             --query "[].name" -o tsv > all.txt
 
-          # Filter (SAFE - will not fail)
           grep '^config-' all.txt > configs.txt || true
 
           echo ""
-          echo "📋 Available Clients:"
-          echo "----------------------"
+          echo "📋 CLIENT CONFIGS:"
+          echo "--------------------------------------------------"
+          printf "%-20s %-15s %-20s\n" "CLIENT" "IP" "NETWORK"
+          echo "--------------------------------------------------"
 
-          if [ ! -s configs.txt ]; then
-            echo "❌ No configs found"
-            echo "👉 Make sure your secrets are named like: config-sap"
-          else
-            i=1
-            while read line; do
-              echo "$i) $line"
-              i=$((i+1))
-            done < configs.txt
-          fi
+          while read secret; do
+            [ -z "$secret" ] && continue
 
-          echo "----------------------"
+            value=$(az keyvault secret show \
+              --vault-name "${{ secrets.AZURE_VAULT_NAME }}" \
+              --name "$secret" \
+              --query value -o tsv)
 
-          # JSON output (safe)
-          if [ -s configs.txt ]; then
-            jq -R -s -c 'split("\n")[:-1]' configs.txt > configs.json
-          else
-            echo "[]" > configs.json
-          fi
+            # Parse JSON
+            client=$(echo "$value" | jq -r '.client')
+            ip=$(echo "$value" | jq -r '.ip')
+            network=$(echo "$value" | jq -r '.network')
 
-          echo ""
-          echo "📦 JSON Output:"
-          cat configs.json
+            printf "%-20s %-15s %-20s\n" "$client" "$ip" "$network"
 
-          echo ""
-          echo "🎯 COPY THIS INTO YOUR WORKFLOW:"
-          echo "--------------------------------"
+          done < configs.txt
 
-          while read line; do
-            echo "  - $line"
-          done < configs.txt || true
-
-          echo "--------------------------------"
-
-      # 📦 Upload artifact
-      - name: Upload config list
-        uses: actions/upload-artifact@v4
-        with:
-          name: config-list
-          path: |
-            configs.txt
-            configs.json
+          echo "--------------------------------------------------"
