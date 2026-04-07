@@ -5,6 +5,19 @@ on:
     branches:
       - main
 
+  # 🔥 NEW: manual run with inputs
+  workflow_dispatch:
+    inputs:
+      pipelines_config:
+        description: "Pipelines secret (optional)"
+        required: false
+      microsoft_config:
+        description: "Microsoft secret (optional)"
+        required: false
+      jumbo_config:
+        description: "Jumbo secret (optional)"
+        required: false
+
 jobs:
   terraform:
     runs-on: ubuntu-latest
@@ -30,10 +43,16 @@ jobs:
       - name: Terraform Init
         run: terraform init
 
-      # ✅ FIXED (no variable)
+      # ✅ Plan
       - name: Terraform Plan
-        run: terraform plan
+        run: terraform plan \
+          -var="pipelines_config=${{ github.event.inputs.pipelines_config }}" \
+          -var="microsoft_config=${{ github.event.inputs.microsoft_config }}" \
+          -var="jumbo_config=${{ github.event.inputs.jumbo_config }}"
 
-      # ✅ FIXED (no variable)
+      # ✅ Apply
       - name: Terraform Apply
-        run: terraform apply -auto-approve
+        run: terraform apply -auto-approve \
+          -var="pipelines_config=${{ github.event.inputs.pipelines_config }}" \
+          -var="microsoft_config=${{ github.event.inputs.microsoft_config }}" \
+          -var="jumbo_config=${{ github.event.inputs.jumbo_config }}"
