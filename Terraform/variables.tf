@@ -3,7 +3,7 @@ variable "subscription_id" {
 }
 
 variable "resource_group_name" {
-  default = "SAP_Enveriment_RG"
+  default = "SAP_Environment_RG"
 }
 
 variable "location" {
@@ -11,7 +11,7 @@ variable "location" {
 }
 
 variable "vnet_name" {
-  default = "SAP_Enveriment_Network"
+  default = "SAP_Environment_Network"
 }
 
 variable "subnet_name" {
@@ -32,11 +32,7 @@ variable "tags" {
   }
 }
 
-# 👇 ADD THESE (needed for your workflow)
+# ✅ Only required variable
 variable "server_config" {
-  type = string
-}
-
-variable "environment" {
   type = string
 }
