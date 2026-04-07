@@ -1,29 +1,13 @@
-name: Terraform Deploy (Key Vault Config)
+name: Terraform Deploy (Clean)
 
 on:
-  workflow_dispatch:
-    inputs:
-      server_name:
-        description: "Server name"
-        required: true
-
-      server_ip:
-        description: "Server IP"
-        required: true
-
-      network:
-        description: "Network"
-        required: true
-        type: choice
-        options:
-          - production-network
-          - staging-network
-          - dev-network
-          - dmz-network
+  push:
+    branches:
+      - main
 
 jobs:
   terraform:
-    name: Terraform Deploy
+    name: Deploy Infrastructure
     runs-on: ubuntu-latest
 
     defaults:
@@ -53,19 +37,6 @@ jobs:
               "tenantId": "${{ secrets.ARM_TENANT_ID }}"
             }
 
-      # 📄 Create JSON config
-      - name: Create config JSON
-        run: |
-          echo '{
-            "server_name": "${{ github.event.inputs.server_name }}",
-            "server_ip": "${{ github.event.inputs.server_ip }}",
-            "network": "${{ github.event.inputs.network }}"
-          }' > config.json
-
-          echo "CONFIG<<EOF" >> $GITHUB_ENV
-          cat config.json >> $GITHUB_ENV
-          echo "EOF" >> $GITHUB_ENV
-
       # ⚙️ Setup Terraform
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
@@ -74,14 +45,10 @@ jobs:
       - name: Terraform Init
         run: terraform init
 
-      # 🔍 Plan (NO var issues anymore)
+      # 🔍 Plan
       - name: Terraform Plan
-        env:
-          TF_VAR_server_config: ${{ env.CONFIG }}
         run: terraform plan
 
       # 🚀 Apply
       - name: Terraform Apply
-        env:
-          TF_VAR_server_config: ${{ env.CONFIG }}
         run: terraform apply -auto-approve
