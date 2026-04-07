@@ -31,20 +31,3 @@ variable "tags" {
     pipelines = "secrets"
   }
 }
-
-# 🔥 REQUIRED FOR PIPELINE
-
-variable "action" {
-  type    = string
-  default = "use_existing_file"
-}
-
-variable "target_secret" {
-  type    = string
-  default = "pipelines"
-}
-
-variable "secret_value" {
-  type    = string
-  default = ""
-}
