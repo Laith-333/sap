@@ -1,3 +1,11 @@
+terraform {
+  required_providers {
+    azurerm = {
+      source  = "hashicorp/azurerm"
+    }
+  }
+}
+
 provider "azurerm" {
   features {}
   subscription_id = var.subscription_id
@@ -6,80 +14,18 @@ provider "azurerm" {
 data "azurerm_client_config" "current" {}
 
 # -------------------------
-# Random suffix (FIX for Key Vault name)
+# EXISTING Key Vault (reference only)
 # -------------------------
-resource "random_string" "suffix" {
-  length  = 5
-  special = false
-  upper   = false
+data "azurerm_key_vault" "kv" {
+  name                = var.key_vault_name
+  resource_group_name = var.resource_group_name
 }
 
 # -------------------------
-# Resource Group
+# Upload Secret (FILE CONTENT)
 # -------------------------
-resource "azurerm_resource_group" "rg" {
-  name     = var.resource_group_name
-  location = var.location
-  tags     = var.tags
-}
-
-# -------------------------
-# Virtual Network
-# -------------------------
-resource "azurerm_virtual_network" "vnet" {
-  name                = var.vnet_name
-  location            = azurerm_resource_group.rg.location
-  resource_group_name = azurerm_resource_group.rg.name
-
-  address_space = var.vnet_address_space
-  tags          = var.tags
-}
-
-# -------------------------
-# Subnet
-# -------------------------
-resource "azurerm_subnet" "subnet_secrets" {
-  name                 = var.subnet_name
-  resource_group_name  = azurerm_resource_group.rg.name
-  virtual_network_name = azurerm_virtual_network.vnet.name
-
-  address_prefixes = var.subnet_prefix
-}
-
-# -------------------------
-# Key Vault (FIXED name)
-# -------------------------
-resource "azurerm_key_vault" "kv" {
-  name                = "peiplnessecrets${random_string.suffix.result}"
-  location            = azurerm_resource_group.rg.location
-  resource_group_name = azurerm_resource_group.rg.name
-
-  tenant_id = data.azurerm_client_config.current.tenant_id
-  sku_name  = "standard"
-
-  purge_protection_enabled   = false
-  soft_delete_retention_days = 7
-
-  tags = var.tags
-}
-
-# -------------------------
-# Access Policy
-# -------------------------
-resource "azurerm_key_vault_access_policy" "current_user" {
-  key_vault_id = azurerm_key_vault.kv.id
-
-  tenant_id = data.azurerm_client_config.current.tenant_id
-  object_id = data.azurerm_client_config.current.object_id
-
-  secret_permissions = ["Get", "List", "Set", "Delete"]
-  key_permissions    = ["Get", "List"]
-}
-
-# -------------------------
-# Wait for permissions
-# -------------------------
-resource "time_sleep" "wait_for_permissions" {
-  depends_on      = [azurerm_key_vault_access_policy.current_user]
-  create_duration = "60s"
+resource "azurerm_key_vault_secret" "upload" {
+  name         = var.secret_name
+  value        = file(var.file_path)
+  key_vault_id = data.azurerm_key_vault.kv.id
 }
