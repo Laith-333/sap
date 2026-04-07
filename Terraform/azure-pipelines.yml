@@ -7,8 +7,16 @@ on:
 
   workflow_dispatch:
     inputs:
+      action:
+        description: "What do you want to do?"
+        required: true
+        type: choice
+        options:
+          - use_existing_file
+          - create_new
+
       target_secret:
-        description: "Which secret to update"
+        description: "Which secret?"
         required: true
         type: choice
         options:
@@ -17,7 +25,7 @@ on:
           - jumbo
 
       secret_value:
-        description: "Paste value (optional)"
+        description: "Paste value (only for create_new)"
         required: false
 
 jobs:
@@ -47,11 +55,13 @@ jobs:
       - name: Terraform Plan
         run: |
           terraform plan \
+            -var="action=${{ github.event.inputs.action }}" \
             -var="target_secret=${{ github.event.inputs.target_secret }}" \
             -var="secret_value=${{ github.event.inputs.secret_value }}"
 
       - name: Terraform Apply
         run: |
           terraform apply -auto-approve \
+            -var="action=${{ github.event.inputs.action }}" \
             -var="target_secret=${{ github.event.inputs.target_secret }}" \
             -var="secret_value=${{ github.event.inputs.secret_value }}"
