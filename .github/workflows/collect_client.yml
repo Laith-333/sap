@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       client_name:
-        description: "Client Name (existing or new)"
+        description: "Client Name (existing OR new)"
         required: true
 
       server_ip:
@@ -31,7 +31,6 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # 📥 Checkout
       - uses: actions/checkout@v4
 
       # 🔐 Azure Login
@@ -46,17 +45,19 @@ jobs:
               "tenantId": "${{ secrets.ARM_TENANT_ID }}"
             }
 
-      # 🔍 SHOW EXISTING CLIENTS (IMPORTANT 🔥)
-      - name: List existing configs
+      # 🔥 STEP 1: SHOW CLIENTS FIRST
+      - name: Show existing clients
         run: |
-          echo "📋 EXISTING CLIENTS:"
-          echo "--------------------------------"
+          echo ""
+          echo "=============================="
+          echo "📋 EXISTING CLIENTS"
+          echo "=============================="
 
           az keyvault secret list \
             --vault-name "${{ secrets.AZURE_VAULT_NAME }}" \
             --query "[].name" -o tsv | grep '^client-' || echo "No clients found"
 
-          echo "--------------------------------"
+          echo "=============================="
 
       # 🔍 Validate IP
       - name: Validate IP
@@ -67,7 +68,7 @@ jobs:
             exit 1
           fi
 
-      # 🧠 Generate safe secret name
+      # 🧠 Generate safe name
       - name: Generate secret name
         id: naming
         run: |
@@ -75,8 +76,8 @@ jobs:
           SAFE=$(echo "$RAW" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9-' '-')
           echo "secret_name=$SAFE" >> $GITHUB_OUTPUT
 
-      # 🔎 Check if client exists
-      - name: Check existing config
+      # 🔥 STEP 2: CHECK EXISTENCE
+      - name: Check if client exists
         id: check
         run: |
           NAME="${{ steps.naming.outputs.secret_name }}"
@@ -86,14 +87,16 @@ jobs:
             --query "[?name=='$NAME'] | length(@)")
 
           if [ "$EXISTS" -gt 0 ]; then
-            echo "⚠️ Client already exists → will UPDATE"
+            echo ""
+            echo "⚠️ CLIENT EXISTS → WILL UPDATE"
             echo "exists=true" >> $GITHUB_OUTPUT
           else
-            echo "✅ New client → will CREATE"
+            echo ""
+            echo "✅ NEW CLIENT → WILL CREATE"
             echo "exists=false" >> $GITHUB_OUTPUT
           fi
 
-      # 📄 Create config JSON
+      # 📄 Create config
       - name: Create config file
         run: |
           jq -n \
@@ -111,7 +114,7 @@ jobs:
           echo "Generated config:"
           cat config.json
 
-      # 🔐 Upload / Update
+      # 🔐 Upload
       - name: Upload to Key Vault
         run: |
           az keyvault secret set \
@@ -119,4 +122,4 @@ jobs:
             --name "${{ steps.naming.outputs.secret_name }}" \
             --file config.json
 
-          echo "✅ Config uploaded successfully"
+          echo "✅ Upload completed"
