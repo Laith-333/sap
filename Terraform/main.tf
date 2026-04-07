@@ -72,20 +72,30 @@ resource "azurerm_key_vault_access_policy" "terraform" {
     "Set",
     "Delete"
   ]
+
+  # 🔥 FIX: allow portal to list keys
+  key_permissions = [
+    "Get",
+    "List"
+  ]
 }
 
 # -------------------------
-# ✅ ACCESS FOR YOU (VERY IMPORTANT FIX)
+# ✅ ACCESS FOR YOU (FIXED)
 # -------------------------
 resource "azurerm_key_vault_access_policy" "your_user" {
   key_vault_id = azurerm_key_vault.kv.id
 
   tenant_id = data.azurerm_client_config.current.tenant_id
-
-  # 🔥 PUT YOUR USER OBJECT ID HERE
   object_id = var.user_object_id
 
   secret_permissions = [
+    "Get",
+    "List"
+  ]
+
+  # 🔥 FIX: required for Azure Portal
+  key_permissions = [
     "Get",
     "List"
   ]
