@@ -31,8 +31,3 @@ variable "tags" {
     pipelines = "secrets"
   }
 }
-
-# ✅ Only required variable
-variable "server_config" {
-  type = string
-}
