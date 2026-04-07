@@ -67,7 +67,7 @@ jobs:
             exit 1
           fi
 
-      # 🧠 Generate secret name
+      # 🧠 Generate safe secret name
       - name: Generate secret name
         id: naming
         run: |
@@ -90,9 +90,10 @@ jobs:
               environment: $env
             }' > config.json
 
+          echo "Generated config:"
           cat config.json
 
-      # 🔐 Store in Key Vault
+      # 🔐 Store in Azure Key Vault
       - name: Store in Key Vault
         run: |
           az keyvault secret set \
@@ -100,7 +101,9 @@ jobs:
             --name "${{ steps.naming.outputs.secret_name }}" \
             --file config.json
 
-      # 🔄 Retrieve config for Terraform
+          echo "✅ Stored in Key Vault"
+
+      # 🔄 Retrieve config (FIXED multiline handling)
       - name: Get config from Key Vault
         run: |
           CONFIG=$(az keyvault secret show \
@@ -109,7 +112,12 @@ jobs:
             --query value -o tsv)
 
           echo "::add-mask::$CONFIG"
-          echo "CONFIG=$CONFIG" >> $GITHUB_ENV
+
+          {
+            echo "CONFIG<<EOF"
+            echo "$CONFIG"
+            echo "EOF"
+          } >> $GITHUB_ENV
 
       # ⚙️ Setup Terraform
       - name: Setup Terraform
@@ -119,7 +127,7 @@ jobs:
         run: terraform init
         working-directory: Terraform
 
-      # 🔥 Pass config into Terraform
+      # 🔥 Terraform Plan
       - name: Terraform Plan
         run: |
           terraform plan \
@@ -127,6 +135,7 @@ jobs:
             -var="environment=${{ github.event.inputs.environment }}"
         working-directory: Terraform
 
+      # 🚀 Terraform Apply
       - name: Terraform Apply
         run: |
           terraform apply -auto-approve \
