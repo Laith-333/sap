@@ -68,20 +68,27 @@ resource "azurerm_key_vault_access_policy" "current_user" {
 }
 
 # -------------------------
-# Wait
+# Wait for permissions
 # -------------------------
 resource "time_sleep" "wait_for_permissions" {
-  depends_on = [azurerm_key_vault_access_policy.current_user]
+  depends_on      = [azurerm_key_vault_access_policy.current_user]
   create_duration = "60s"
 }
 
 # -------------------------
-# OPTIONAL: use your config
+# Decode config JSON
 # -------------------------
 locals {
   config = jsondecode(var.server_config)
 }
 
-output "debug_server_ip" {
+# -------------------------
+# Debug outputs
+# -------------------------
+output "server_name" {
+  value = local.config.server_name
+}
+
+output "server_ip" {
   value = local.config.server_ip
 }
