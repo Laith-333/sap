@@ -4,6 +4,7 @@ provider "azurerm" {
   subscription_id = var.subscription_id
 }
 
+# Detect current identity (GitHub / Terraform)
 data "azurerm_client_config" "current" {}
 
 # -------------------------
@@ -57,46 +58,63 @@ resource "azurerm_key_vault" "kv" {
 }
 
 # -------------------------
-# Wait for KV
+# ✅ ACCESS (ONLY ONE POLICY — CLEAN)
+# -------------------------
+resource "azurerm_key_vault_access_policy" "current_user" {
+  key_vault_id = azurerm_key_vault.kv.id
+
+  tenant_id = data.azurerm_client_config.current.tenant_id
+
+  # 🔥 auto-detect (works locally + GitHub)
+  object_id = data.azurerm_client_config.current.object_id
+
+  secret_permissions = [
+    "Get",
+    "List",
+    "Set",
+    "Delete"
+  ]
+
+  key_permissions = [
+    "Get",
+    "List"
+  ]
+}
+
+# -------------------------
+# ⏳ Wait for permissions
 # -------------------------
 resource "time_sleep" "wait_for_permissions" {
-  depends_on = [azurerm_key_vault.kv]
+  depends_on = [
+    azurerm_key_vault_access_policy.current_user
+  ]
+
   create_duration = "60s"
 }
 
 # -------------------------
-# Secrets (FIXED SYNTAX)
+# Secrets
 # -------------------------
-
 resource "azurerm_key_vault_secret" "pipelines" {
-  count = var.target_secret == "pipelines" ? 1 : 0
-
-  name = "pipelines-config"
-
-  value = var.action == "create_new" && var.secret_value != "" ? var.secret_value : file("${path.module}/pipelines.env")
-
+  name         = "pipelines-config"
+  value        = file("${path.module}/pipelines.env")
   key_vault_id = azurerm_key_vault.kv.id
-  depends_on   = [time_sleep.wait_for_permissions]
+
+  depends_on = [time_sleep.wait_for_permissions]
 }
 
 resource "azurerm_key_vault_secret" "microsoft" {
-  count = var.target_secret == "microsoft" ? 1 : 0
-
-  name = "microsoft-config"
-
-  value = var.action == "create_new" && var.secret_value != "" ? var.secret_value : file("${path.module}/microsoft.env")
-
+  name         = "microsoft-config"
+  value        = file("${path.module}/microsoft.env")
   key_vault_id = azurerm_key_vault.kv.id
-  depends_on   = [time_sleep.wait_for_permissions]
+
+  depends_on = [time_sleep.wait_for_permissions]
 }
 
 resource "azurerm_key_vault_secret" "jumbo" {
-  count = var.target_secret == "jumbo" ? 1 : 0
-
-  name = "jumbo-config"
-
-  value = var.action == "create_new" && var.secret_value != "" ? var.secret_value : file("${path.module}/jumbo.env")
-
+  name         = "jumbo-config"
+  value        = file("${path.module}/jumbo.env")
   key_vault_id = azurerm_key_vault.kv.id
-  depends_on   = [time_sleep.wait_for_permissions]
+
+  depends_on = [time_sleep.wait_for_permissions]
 }
