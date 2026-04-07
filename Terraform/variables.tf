@@ -31,4 +31,12 @@ variable "tags" {
     pipelines = "secrets"
   }
 }
+
+# 👇 ADD THESE (needed for your workflow)
+variable "server_config" {
+  type = string
+}
+
+variable "environment" {
+  type = string
 }
