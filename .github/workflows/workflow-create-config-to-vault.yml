@@ -27,7 +27,7 @@ on:
         default: "web"
 
       saprouttab:
-        description: "SAP Router rules (optional) e.g. P 1.2.3.4 * *"
+        description: "SAP Router rules (optional)"
         required: false
         default: ""
 
@@ -39,8 +39,10 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      # 📥 Checkout
       - uses: actions/checkout@v4
 
+      # 🔐 Azure Login
       - name: Azure Login
         uses: azure/login@v2
         with:
@@ -52,6 +54,7 @@ jobs:
               "tenantId": "${{ secrets.ARM_TENANT_ID }}"
             }
 
+      # 🔍 Validate IP
       - name: Validate IP
         run: |
           IP="${{ github.event.inputs.server_ip }}"
@@ -60,7 +63,8 @@ jobs:
             exit 1
           fi
 
-      - name: Generate secret name
+      # 🧠 Generate clean names
+      - name: Generate secret names
         id: naming
         run: |
           INPUT="${{ github.event.inputs.client_name }}"
@@ -76,6 +80,7 @@ jobs:
           echo "secret_name=$SAFE" >> $GITHUB_OUTPUT
           echo "router_name=$ROUTER" >> $GITHUB_OUTPUT
 
+      # 📄 Create config.json
       - name: Create config.json
         run: |
           jq -n \
@@ -90,33 +95,57 @@ jobs:
               service: $svc
             }' > config.json
 
-          cat config.json
+          echo "Config created"
 
-      - name: Create saprouttab
+      # 🔥 Prepare SAP Router file (FILE → INPUT → DEFAULT)
+      - name: Prepare saprouttab
         run: |
+          FILE="saprouttab_temp"
           INPUT="${{ github.event.inputs.saprouttab }}"
-          CLIENT="${{ github.event.inputs.client_name }}"
           IP="${{ github.event.inputs.server_ip }}"
+          CLIENT="${{ github.event.inputs.client_name }}"
 
-          if [ -z "$INPUT" ]; then
-            echo "Using default SAP rule"
-            echo "P $IP * *" > saprouttab
-          else
+          if [ -f "$FILE" ]; then
+            echo "✅ Using saprouttab_temp file"
+            cp "$FILE" saprouttab
+
+          elif [ -n "$INPUT" ]; then
+            echo "⚠️ Using input from UI"
             echo "$INPUT" > saprouttab
+
+          else
+            echo "⚠️ Using default SAP rule"
+            echo "P $IP * *" > saprouttab
           fi
 
-          cat saprouttab
+          echo "SAP Router file ready"
+          wc -l saprouttab
 
+      # 🔐 Upload client config
       - name: Upload client config
         run: |
           az keyvault secret set \
             --vault-name "${{ secrets.AZURE_VAULT_NAME }}" \
             --name "${{ steps.naming.outputs.secret_name }}" \
-            --file config.json
+            --file config.json \
+            --only-show-errors
 
+      # 🔐 Upload SAP Router config
       - name: Upload saprouttab
         run: |
           az keyvault secret set \
             --vault-name "${{ secrets.AZURE_VAULT_NAME }}" \
             --name "${{ steps.naming.outputs.router_name }}" \
-            --file saprouttab
+            --file saprouttab \
+            --only-show-errors
+
+          echo "✅ SAP Router uploaded"
+
+      # 🔥 Cleanup sensitive files
+      - name: Cleanup files
+        run: |
+          rm -f config.json
+          rm -f saprouttab
+          rm -f saprouttab_temp || true
+
+          echo "🧹 Temporary files deleted"
