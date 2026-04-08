@@ -1,1 +1,151 @@
+name: Create Client + SAP Router Config (Key Vault)
 
+on:
+  workflow_dispatch:
+    inputs:
+      client_name:
+        description: "Client Name (e.g. sap, microsoft)"
+        required: true
+
+      server_ip:
+        description: "Server IP Address"
+        required: true
+
+      network:
+        description: "Network / Subnet"
+        required: true
+        type: choice
+        options:
+          - production-network
+          - staging-network
+          - dev-network
+          - dmz-network
+
+      service:
+        description: "Service Type (web, db, api)"
+        required: true
+        default: "web"
+
+      saprouttab:
+        description: "SAP Router rules (optional)"
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  upload-config:
+    runs-on: ubuntu-latest
+
+    steps:
+      # 📥 Checkout
+      - uses: actions/checkout@v4
+
+      # 🔐 Azure Login
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          creds: |
+            {
+              "clientId": "${{ secrets.ARM_CLIENT_ID }}",
+              "clientSecret": "${{ secrets.ARM_CLIENT_SECRET }}",
+              "subscriptionId": "${{ secrets.ARM_SUBSCRIPTION_ID }}",
+              "tenantId": "${{ secrets.ARM_TENANT_ID }}"
+            }
+
+      # 🔍 Validate IP
+      - name: Validate IP
+        run: |
+          IP="${{ github.event.inputs.server_ip }}"
+          if ! [[ $IP =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]]; then
+            echo "❌ Invalid IP"
+            exit 1
+          fi
+
+      # 🧠 Generate clean names
+      - name: Generate secret names
+        id: naming
+        run: |
+          INPUT="${{ github.event.inputs.client_name }}"
+          CLEAN=$(echo "$INPUT" | sed 's/^client-//')
+
+          SAFE=$(echo "client-$CLEAN" \
+            | tr '[:upper:]' '[:lower:]' \
+            | sed 's/[^a-z0-9-]/-/g' \
+            | sed 's/-$//')
+
+          ROUTER="saprouttab-$CLEAN"
+
+          echo "secret_name=$SAFE" >> $GITHUB_OUTPUT
+          echo "router_name=$ROUTER" >> $GITHUB_OUTPUT
+
+      # 📄 Create config.json
+      - name: Create config.json
+        run: |
+          jq -n \
+            --arg client "${{ github.event.inputs.client_name }}" \
+            --arg ip "${{ github.event.inputs.server_ip }}" \
+            --arg net "${{ github.event.inputs.network }}" \
+            --arg svc "${{ github.event.inputs.service }}" \
+            '{
+              client_name: $client,
+              server_ip: $ip,
+              network: $net,
+              service: $svc
+            }' > config.json
+
+          echo "Config created"
+
+      # 🔥 Prepare SAP Router file (FILE → INPUT → DEFAULT)
+      - name: Prepare saprouttab
+        run: |
+          FILE="saprouttab_temp"
+          INPUT="${{ github.event.inputs.saprouttab }}"
+          IP="${{ github.event.inputs.server_ip }}"
+          CLIENT="${{ github.event.inputs.client_name }}"
+
+          if [ -f "$FILE" ]; then
+            echo "✅ Using saprouttab_temp file"
+            cp "$FILE" saprouttab
+
+          elif [ -n "$INPUT" ]; then
+            echo "⚠️ Using input from UI"
+            echo "$INPUT" > saprouttab
+
+          else
+            echo "⚠️ Using default SAP rule"
+            echo "P $IP * *" > saprouttab
+          fi
+
+          echo "SAP Router file ready"
+          wc -l saprouttab
+
+      # 🔐 Upload client config
+      - name: Upload client config
+        run: |
+          az keyvault secret set \
+            --vault-name "${{ secrets.AZURE_VAULT_NAME }}" \
+            --name "${{ steps.naming.outputs.secret_name }}" \
+            --file config.json \
+            --only-show-errors
+
+      # 🔐 Upload SAP Router config
+      - name: Upload saprouttab
+        run: |
+          az keyvault secret set \
+            --vault-name "${{ secrets.AZURE_VAULT_NAME }}" \
+            --name "${{ steps.naming.outputs.router_name }}" \
+            --file saprouttab \
+            --only-show-errors
+
+          echo "✅ SAP Router uploaded"
+
+      # 🔥 Cleanup sensitive files
+      - name: Cleanup files
+        run: |
+          rm -f config.json
+          rm -f saprouttab
+          rm -f saprouttab_temp || true
+
+          echo "🧹 Temporary files deleted"
