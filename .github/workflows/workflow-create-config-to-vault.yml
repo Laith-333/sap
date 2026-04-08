@@ -1,10 +1,10 @@
-name: Create Client Config & Upload to Key Vault
+name: Create Client + SAP Router Config (Key Vault)
 
 on:
   workflow_dispatch:
     inputs:
       client_name:
-        description: "Client Name (e.g. SAP, Microsoft, Jumbo)"
+        description: "Client Name (e.g. sap, microsoft)"
         required: true
 
       server_ip:
@@ -26,22 +26,28 @@ on:
         required: true
         default: "web"
 
+      saprouttab:
+        description: |
+          SAP Router rules (optional)
+          Example:
+          P 10.0.0.1 192.168.1.10 3299
+          D * * *
+        required: false
+
 permissions:
   contents: read
 
 jobs:
   upload-config:
-    name: Generate Config & Upload
     runs-on: ubuntu-latest
 
     steps:
       # 📥 Checkout
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
       # 🔐 Azure Login
       - name: Azure Login
-        uses: azure/login@v1
+        uses: azure/login@v2
         with:
           creds: |
             {
@@ -60,16 +66,29 @@ jobs:
             exit 1
           fi
 
-      # 🧠 Generate secret name
+      # 🧠 Generate CLEAN secret name (FIXED)
       - name: Generate secret name
         id: naming
         run: |
-          RAW="client-${{ github.event.inputs.client_name }}"
-          SAFE=$(echo "$RAW" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9-' '-')
-          echo "secret_name=$SAFE" >> $GITHUB_OUTPUT
+          INPUT="${{ github.event.inputs.client_name }}"
 
-      # 📄 Create config JSON
-      - name: Create config file
+          CLEAN=$(echo "$INPUT" | sed 's/^client-//')
+
+          SAFE=$(echo "client-$CLEAN" \
+            | tr '[:upper:]' '[:lower:]' \
+            | sed 's/[^a-z0-9-]/-/g' \
+            | sed 's/-$//')
+
+          ROUTER="saprouttab-$CLEAN"
+
+          echo "secret_name=$SAFE" >> $GITHUB_OUTPUT
+          echo "router_name=$ROUTER" >> $GITHUB_OUTPUT
+
+          echo "Client secret: $SAFE"
+          echo "Router secret: $ROUTER"
+
+      # 📄 Create main config JSON
+      - name: Create config.json
         run: |
           jq -n \
             --arg client "${{ github.event.inputs.client_name }}" \
@@ -86,12 +105,43 @@ jobs:
           echo "Generated config:"
           cat config.json
 
-      # 🔐 Upload to Key Vault
-      - name: Upload to Azure Key Vault
+      # 🔥 Create SAP Router config (SMART)
+      - name: Create saprouttab
+        run: |
+          INPUT="${{ github.event.inputs.saprouttab }}"
+          CLIENT="${{ github.event.inputs.client_name }}"
+          IP="${{ github.event.inputs.server_ip }}"
+
+          if [ -z "$INPUT" ]; then
+            echo "⚠️ No custom SAP rules → using default"
+
+            cat <<EOF > saprouttab
+# SAP Router Rules for $CLIENT
+P $IP * *
+EOF
+
+          else
+            echo "✅ Using custom SAP rules"
+            echo "$INPUT" > saprouttab
+          fi
+
+          echo "Generated saprouttab:"
+          cat saprouttab
+
+      # 🔐 Upload client config
+      - name: Upload client config
         run: |
           az keyvault secret set \
             --vault-name "${{ secrets.AZURE_VAULT_NAME }}" \
             --name "${{ steps.naming.outputs.secret_name }}" \
             --file config.json
 
-          echo "✅ Config uploaded successfully"
+      # 🔐 Upload SAP router config
+      - name: Upload saprouttab
+        run: |
+          az keyvault secret set \
+            --vault-name "${{ secrets.AZURE_VAULT_NAME }}" \
+            --name "${{ steps.naming.outputs.router_name }}" \
+            --file saprouttab
+
+          echo "✅ Client + SAP Router uploaded successfully"
