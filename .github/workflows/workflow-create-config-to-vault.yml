@@ -32,15 +32,17 @@ on:
         default: ""
 
 permissions:
-  contents: read
+  contents: write   # 🔥 REQUIRED for push
 
 jobs:
   upload-config:
     runs-on: ubuntu-latest
 
     steps:
-      # 📥 Checkout
+      # 📥 Checkout (WITH PUSH SUPPORT 🔥)
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: true
 
       # 🔐 Azure Login
       - name: Azure Login
@@ -63,7 +65,7 @@ jobs:
             exit 1
           fi
 
-      # 🧠 Generate clean names
+      # 🧠 Generate names
       - name: Generate secret names
         id: naming
         run: |
@@ -95,15 +97,12 @@ jobs:
               service: $svc
             }' > config.json
 
-          echo "Config created"
-
-      # 🔥 Prepare SAP Router file (FILE → INPUT → DEFAULT)
+      # 🔥 Prepare SAP Router
       - name: Prepare saprouttab
         run: |
           FILE="saprouttab_temp"
           INPUT="${{ github.event.inputs.saprouttab }}"
           IP="${{ github.event.inputs.server_ip }}"
-          CLIENT="${{ github.event.inputs.client_name }}"
 
           if [ -f "$FILE" ]; then
             echo "✅ Using saprouttab_temp file"
@@ -118,7 +117,6 @@ jobs:
             echo "P $IP * *" > saprouttab
           fi
 
-          echo "SAP Router file ready"
           wc -l saprouttab
 
       # 🔐 Upload client config
@@ -130,7 +128,7 @@ jobs:
             --file config.json \
             --only-show-errors
 
-      # 🔐 Upload SAP Router config
+      # 🔐 Upload saprouttab
       - name: Upload saprouttab
         run: |
           az keyvault secret set \
@@ -139,13 +137,27 @@ jobs:
             --file saprouttab \
             --only-show-errors
 
-          echo "✅ SAP Router uploaded"
-
-      # 🔥 Cleanup sensitive files
-      - name: Cleanup files
+      # 🔥 Cleanup runner files
+      - name: Cleanup runner files
         run: |
           rm -f config.json
           rm -f saprouttab
-          rm -f saprouttab_temp || true
 
-          echo "🧹 Temporary files deleted"
+      # 🔥 DELETE FILE FROM REPO (REAL FIX)
+      - name: Delete saprouttab_temp from repo
+        run: |
+          if [ -f saprouttab_temp ]; then
+            echo "🧹 Removing saprouttab_temp from repo"
+
+            rm -f saprouttab_temp
+
+            git config user.name "github-actions"
+            git config user.email "actions@github.com"
+
+            git add saprouttab_temp || true
+            git commit -m "🔥 remove sensitive saprouttab_temp" || echo "Nothing to commit"
+
+            git push
+          else
+            echo "No saprouttab_temp found"
+          fi
