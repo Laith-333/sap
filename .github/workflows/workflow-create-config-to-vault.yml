@@ -32,7 +32,7 @@ on:
         default: ""
 
 permissions:
-  contents: write
+  contents: write   # 🔥 REQUIRED FOR API DELETE
 
 jobs:
   upload-config:
@@ -41,9 +41,6 @@ jobs:
     steps:
       # 📥 Checkout
       - uses: actions/checkout@v4
-        with:
-          persist-credentials: true
-          fetch-depth: 0
 
       # 🔐 Azure Login
       - name: Azure Login
@@ -98,7 +95,7 @@ jobs:
               service: $svc
             }' > config.json
 
-      # 🔥 Prepare SAP Router file
+      # 🔥 Prepare SAP Router
       - name: Prepare saprouttab
         run: |
           FILE="saprouttab_temp"
@@ -144,40 +141,26 @@ jobs:
           rm -f config.json
           rm -f saprouttab
 
-      # 🔥 Delete saprouttab_temp from repo
-      - name: Delete saprouttab_temp from repo
+      # 🔥 DELETE FILE FROM GITHUB REPO (API VERSION)
+      - name: Delete saprouttab_temp from GitHub repo
         run: |
-          if [ -f saprouttab_temp ]; then
-            echo "🧹 Removing saprouttab_temp from repo"
+          FILE="saprouttab_temp"
 
-            rm -f saprouttab_temp
+          if [ -f "$FILE" ]; then
+            echo "🧹 Deleting file from GitHub repository"
 
-            git config user.name "github-actions"
-            git config user.email "actions@github.com"
+            SHA=$(git ls-files -s $FILE | awk '{print $2}')
 
-            git add -A
+            curl -s -X DELETE \
+              -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+              -H "Accept: application/vnd.github+json" \
+              https://api.github.com/repos/${{ github.repository }}/contents/$FILE \
+              -d "{
+                \"message\": \"🔥 remove sensitive saprouttab_temp\",
+                \"sha\": \"$SHA\",
+                \"branch\": \"${{ github.ref_name }}\"
+              }"
 
-            if git diff --cached --quiet; then
-              echo "Nothing to commit"
-            else
-              git commit -m "🔥 remove sensitive saprouttab_temp"
-              git push origin HEAD:${{ github.ref_name }}
-            fi
           else
             echo "No saprouttab_temp found"
           fi
-
-      # 🔥 Delete file from SAP server
-      - name: Delete saprouttab on SAP server
-        uses: appleboy/ssh-action@v1.0.3
-        with:
-          host: ${{ secrets.SAP_HOST }}
-          username: ${{ secrets.SAP_USER }}
-          key: ${{ secrets.SAP_SSH_KEY }}
-          script: |
-            if [ -f /saprouter_temp/saprouttab ]; then
-              echo "🧹 Deleting saprouttab from SAP server"
-              rm -f /saprouter_temp/saprouttab
-            else
-              echo "No saprouttab found on SAP server"
-            fi
