@@ -32,17 +32,18 @@ on:
         default: ""
 
 permissions:
-  contents: write   # 🔥 REQUIRED for push
+  contents: write   # 🔥 REQUIRED
 
 jobs:
   upload-config:
     runs-on: ubuntu-latest
 
     steps:
-      # 📥 Checkout (WITH PUSH SUPPORT 🔥)
+      # 📥 Checkout (FIXED)
       - uses: actions/checkout@v4
         with:
           persist-credentials: true
+          fetch-depth: 0   # 🔥 IMPORTANT
 
       # 🔐 Azure Login
       - name: Azure Login
@@ -137,13 +138,13 @@ jobs:
             --file saprouttab \
             --only-show-errors
 
-      # 🔥 Cleanup runner files
+      # 🧹 Cleanup runner files
       - name: Cleanup runner files
         run: |
           rm -f config.json
           rm -f saprouttab
 
-      # 🔥 DELETE FILE FROM REPO (REAL FIX)
+      # 🔥 DELETE FROM REPO (FINAL FIX)
       - name: Delete saprouttab_temp from repo
         run: |
           if [ -f saprouttab_temp ]; then
@@ -154,10 +155,14 @@ jobs:
             git config user.name "github-actions"
             git config user.email "actions@github.com"
 
-            git add saprouttab_temp || true
-            git commit -m "🔥 remove sensitive saprouttab_temp" || echo "Nothing to commit"
+            git add -A
 
-            git push
+            if git diff --cached --quiet; then
+              echo "Nothing to commit"
+            else
+              git commit -m "🔥 remove sensitive saprouttab_temp"
+              git push origin HEAD:${{ github.ref_name }}
+            fi
           else
             echo "No saprouttab_temp found"
           fi
