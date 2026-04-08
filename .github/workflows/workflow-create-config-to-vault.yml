@@ -22,17 +22,14 @@ on:
           - dmz-network
 
       service:
-        description: "Service Type (web, db, api, etc.)"
+        description: "Service Type (web, db, api)"
         required: true
         default: "web"
 
       saprouttab:
-        description: |
-          SAP Router rules (optional)
-          Example:
-          P 10.0.0.1 192.168.1.10 3299
-          D * * *
+        description: "SAP Router rules (optional) e.g. P 1.2.3.4 * *"
         required: false
+        default: ""
 
 permissions:
   contents: read
@@ -42,10 +39,8 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # 📥 Checkout
       - uses: actions/checkout@v4
 
-      # 🔐 Azure Login
       - name: Azure Login
         uses: azure/login@v2
         with:
@@ -57,7 +52,6 @@ jobs:
               "tenantId": "${{ secrets.ARM_TENANT_ID }}"
             }
 
-      # 🔍 Validate IP
       - name: Validate IP
         run: |
           IP="${{ github.event.inputs.server_ip }}"
@@ -66,12 +60,10 @@ jobs:
             exit 1
           fi
 
-      # 🧠 Generate CLEAN secret name (FIXED)
       - name: Generate secret name
         id: naming
         run: |
           INPUT="${{ github.event.inputs.client_name }}"
-
           CLEAN=$(echo "$INPUT" | sed 's/^client-//')
 
           SAFE=$(echo "client-$CLEAN" \
@@ -84,10 +76,6 @@ jobs:
           echo "secret_name=$SAFE" >> $GITHUB_OUTPUT
           echo "router_name=$ROUTER" >> $GITHUB_OUTPUT
 
-          echo "Client secret: $SAFE"
-          echo "Router secret: $ROUTER"
-
-      # 📄 Create main config JSON
       - name: Create config.json
         run: |
           jq -n \
@@ -102,10 +90,8 @@ jobs:
               service: $svc
             }' > config.json
 
-          echo "Generated config:"
           cat config.json
 
-      # 🔥 Create SAP Router config (SMART)
       - name: Create saprouttab
         run: |
           INPUT="${{ github.event.inputs.saprouttab }}"
@@ -113,22 +99,14 @@ jobs:
           IP="${{ github.event.inputs.server_ip }}"
 
           if [ -z "$INPUT" ]; then
-            echo "⚠️ No custom SAP rules → using default"
-
-            cat <<EOF > saprouttab
-# SAP Router Rules for $CLIENT
-P $IP * *
-EOF
-
+            echo "Using default SAP rule"
+            echo "P $IP * *" > saprouttab
           else
-            echo "✅ Using custom SAP rules"
             echo "$INPUT" > saprouttab
           fi
 
-          echo "Generated saprouttab:"
           cat saprouttab
 
-      # 🔐 Upload client config
       - name: Upload client config
         run: |
           az keyvault secret set \
@@ -136,12 +114,9 @@ EOF
             --name "${{ steps.naming.outputs.secret_name }}" \
             --file config.json
 
-      # 🔐 Upload SAP router config
       - name: Upload saprouttab
         run: |
           az keyvault secret set \
             --vault-name "${{ secrets.AZURE_VAULT_NAME }}" \
             --name "${{ steps.naming.outputs.router_name }}" \
             --file saprouttab
-
-          echo "✅ Client + SAP Router uploaded successfully"
