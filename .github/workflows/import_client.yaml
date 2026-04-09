@@ -1,18 +1,20 @@
-name: Use Existing Client (Key Vault)
+name: Import Client (Secure)
 
 on:
   workflow_dispatch:
     inputs:
       client_name:
-        description: "Existing Client Name (e.g. sap)"
+        description: "Client name (e.g. sap)"
         required: true
 
 jobs:
-  use-client:
+  import:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      # 📥 Checkout (optional but safe)
+      - name: Checkout
+        uses: actions/checkout@v4
 
       # 🔐 Azure Login
       - name: Azure Login
@@ -26,29 +28,64 @@ jobs:
               "tenantId": "${{ secrets.ARM_TENANT_ID }}"
             }
 
-      # 📋 Show available clients
-      - name: List clients
-        run: |
-          echo "📋 Available clients:"
-          az keyvault secret list \
-            --vault-name "${{ secrets.AZURE_VAULT_NAME }}" \
-            --query "[].name" -o tsv | grep '^client-' || echo "No clients found"
-
-      # 🧠 Generate name
-      - name: Generate secret name
+      # 🧠 Generate secret names
+      - name: Generate secret names
         id: naming
         run: |
-          RAW="client-${{ github.event.inputs.client_name }}"
-          SAFE=$(echo "$RAW" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9-' '-')
+          RAW="${{ github.event.inputs.client_name }}"
+          CLEAN=$(echo "$RAW" | sed 's/^client-//')
+
+          SAFE=$(echo "client-$CLEAN" \
+            | tr '[:upper:]' '[:lower:]' \
+            | sed 's/[^a-z0-9-]/-/g' \
+            | sed 's/-$//')
+
+          ROUTER="saprouttab-$CLEAN"
+
           echo "secret_name=$SAFE" >> $GITHUB_OUTPUT
+          echo "router_name=$ROUTER" >> $GITHUB_OUTPUT
 
-      # 🔍 Load config
-      - name: Load config
+      # 🔑 Fetch secrets securely (NO FILES)
+      - name: Fetch secrets from Key Vault
+        id: fetch_secrets
         run: |
-          az keyvault secret show \
-            --vault-name "${{ secrets.AZURE_VAULT_NAME }}" \
-            --name "${{ steps.naming.outputs.secret_name }}" \
-            --query value -o tsv > config.json
+          SECRET_NAME="${{ steps.naming.outputs.secret_name }}"
+          ROUTER_NAME="${{ steps.naming.outputs.router_name }}"
 
-          echo "📄 Loaded config:"
-          cat config.json
+          echo "🔍 Fetching secrets from Azure Key Vault..."
+
+          CONFIG=$(az keyvault secret show \
+            --vault-name "${{ secrets.AZURE_VAULT_NAME }}" \
+            --name "$SECRET_NAME" \
+            --query value -o tsv)
+
+          if [ -z "$CONFIG" ]; then
+            echo "❌ ERROR: Config not found"
+            exit 1
+          fi
+
+          SAPROUTER=$(az keyvault secret show \
+            --vault-name "${{ secrets.AZURE_VAULT_NAME }}" \
+            --name "$ROUTER_NAME" \
+            --query value -o tsv 2>/dev/null || echo "")
+
+          # 🔒 Mask secrets
+          echo "::add-mask::$CONFIG"
+          echo "::add-mask::$SAPROUTER"
+
+          # 📤 Export as outputs (multi-line safe)
+          echo "config<<EOF" >> $GITHUB_OUTPUT
+          echo "$CONFIG" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+          echo "saprouttab<<EOF" >> $GITHUB_OUTPUT
+          echo "$SAPROUTER" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+          echo "✅ Secrets loaded securely"
+
+      # ✅ Confirmation (SAFE - no secret output)
+      - name: Verify fetch
+        run: |
+          echo "Secrets successfully retrieved and stored in memory."
+          echo "Ready for next step (OpenShift injection)."
