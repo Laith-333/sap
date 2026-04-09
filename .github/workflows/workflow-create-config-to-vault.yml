@@ -166,7 +166,46 @@ jobs:
             --only-show-errors
           echo "✅ Uploaded: ${{ steps.naming.outputs.router_name }}"
 
-      # 🧹 Cleanup
+      # 🔥 Delete saprouter file from repo (after upload)
+      - name: Delete saprouter file from repo
+        run: |
+          FILE="saprouter_temp/saprouttab"
+          
+          if [ ! -f "$FILE" ]; then
+            echo "ℹ️ File doesn't exist to delete"
+            exit 0
+          fi
+          
+          # Get the SHA of the file in git
+          SHA=$(git ls-files -s "$FILE" | awk '{print $2}')
+          
+          if [ -z "$SHA" ]; then
+            echo "⚠️ File not tracked in git, skipping deletion"
+            exit 0
+          fi
+          
+          echo "🔥 Deleting $FILE from repo..."
+          
+          RESPONSE=$(curl -s -X DELETE \
+            -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${{ github.repository }}/contents/$FILE" \
+            -d "{
+              \"message\": \"Remove sensitive saprouter config after Key Vault upload\",
+              \"sha\": \"$SHA\",
+              \"branch\": \"${{ github.ref_name }}\"
+            }")
+          
+          # Check if deletion was successful
+          if echo "$RESPONSE" | grep -q '"commit"'; then
+            echo "✅ Successfully deleted from repo: $FILE"
+          else
+            echo "⚠️ Deletion response:"
+            echo "$RESPONSE"
+            exit 1
+          fi
+
+      # 🧹 Cleanup runner files
       - name: Cleanup runner files
         run: |
           rm -f config.json
