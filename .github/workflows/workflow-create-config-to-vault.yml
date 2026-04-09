@@ -1,3 +1,4 @@
+```yaml
 name: Create Client + SAP Router Config (Key Vault)
 
 on:
@@ -87,7 +88,6 @@ jobs:
           IP="${{ github.event.inputs.server_ip }}"
           PORT="${{ github.event.inputs.container_port }}"
 
-          # Generate container name
           CONTAINER_NAME="container-${CLIENT}"
 
           jq -n \
@@ -117,7 +117,6 @@ jobs:
           if [ -f "$FILE" ]; then
             echo "file_exists=true" >> $GITHUB_OUTPUT
             echo "✅ Found: $FILE"
-            echo "Lines:"
             wc -l "$FILE"
           else
             echo "file_exists=false" >> $GITHUB_OUTPUT
@@ -135,11 +134,11 @@ jobs:
           if [ "${{ steps.saprouter_check.outputs.file_exists }}" = "true" ]; then
             echo "SAPROUTER FILE: EXISTS ✅"
           else
-            echo "SAPROUTER FILE: NOT FOUND (will skip) ⏭️"
+            echo "SAPROUTER FILE: NOT FOUND ⏭️"
           fi
           echo "=============================="
 
-      # 🧾 GitHub Summary (Nice UI)
+      # 🧾 GitHub Summary
       - name: Write Summary
         run: |
           echo "## ✅ Client Configuration Created" >> $GITHUB_STEP_SUMMARY
@@ -151,9 +150,9 @@ jobs:
           echo "| IP | ${{ github.event.inputs.server_ip }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Port | ${{ steps.config.outputs.port }} |" >> $GITHUB_STEP_SUMMARY
           if [ "${{ steps.saprouter_check.outputs.file_exists }}" = "true" ]; then
-            echo "| SAP Router | File found and uploaded |" >> $GITHUB_STEP_SUMMARY
+            echo "| SAP Router | File found |" >> $GITHUB_STEP_SUMMARY
           else
-            echo "| SAP Router | File not found (skipped) |" >> $GITHUB_STEP_SUMMARY
+            echo "| SAP Router | File not found |" >> $GITHUB_STEP_SUMMARY
           fi
 
       # 🔐 Upload client config
@@ -166,22 +165,16 @@ jobs:
             --only-show-errors
           echo "✅ Uploaded: ${{ steps.naming.outputs.secret_name }}"
 
-      # 🔐 Check if saprouter file exists before upload (FAIL if missing)
+      # 🔐 Verify saprouter file exists
       - name: Verify saprouter file exists
         run: |
           FILE="saprouter_temp/saprouttab"
           if [ ! -f "$FILE" ]; then
             echo "❌ ERROR: SAP Router file not found: $FILE"
-            echo ""
-            echo "This file is required. Please commit it to the repository:"
-            echo "  Path: saprouter_temp/saprouttab"
-            echo ""
-            echo "Available files in repo:"
-            find . -type f -name "*saprouttab*" -o -name "*router*" 2>/dev/null | head -5 || echo "  (none found)"
             exit 1
           fi
 
-      # 🔐 Upload saprouttab
+      # 🔐 Upload saprouttab (FIXED)
       - name: Upload saprouttab
         run: |
           FILE="saprouter_temp/saprouttab"
@@ -190,10 +183,11 @@ jobs:
             --name "${{ steps.naming.outputs.router_name }}" \
             --file "$FILE" \
             --only-show-errors
-          echo "✅ Uploaded: ${{ steps.naming.outputs.router_name }}""
+          echo "✅ Uploaded: ${{ steps.naming.outputs.router_name }}"
 
       # 🧹 Cleanup
       - name: Cleanup runner files
         run: |
           rm -f config.json
           echo "✅ Cleaned up temporary files"
+```
