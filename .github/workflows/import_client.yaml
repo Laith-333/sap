@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       client_name:
-        description: "Client name (e.g. sap)"
+        description: "Client name (e.g. Fontys)"
         required: true
 
 jobs:
@@ -12,10 +12,6 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # 📥 Checkout (optional but safe)
-      - name: Checkout
-        uses: actions/checkout@v4
-
       # 🔐 Azure Login
       - name: Azure Login
         uses: azure/login@v2
@@ -28,31 +24,31 @@ jobs:
               "tenantId": "${{ secrets.ARM_TENANT_ID }}"
             }
 
-      # 🧠 Generate secret names
+      # 🧠 Generate names (AUTO)
       - name: Generate secret names
         id: naming
         run: |
-          RAW="${{ github.event.inputs.client_name }}"
-          CLEAN=$(echo "$RAW" | sed 's/^client-//')
+          CLIENT="${{ github.event.inputs.client_name }}"
 
-          SAFE=$(echo "client-$CLEAN" \
-            | tr '[:upper:]' '[:lower:]' \
-            | sed 's/[^a-z0-9-]/-/g' \
-            | sed 's/-$//')
+          CLEAN=$(echo "$CLIENT" | sed 's/^client-//')
 
-          ROUTER="saprouttab-$CLEAN"
+          CONFIG_NAME="client-$CLEAN"
+          ROUTER_NAME="saprouttab-$CLEAN"
 
-          echo "secret_name=$SAFE" >> $GITHUB_OUTPUT
-          echo "router_name=$ROUTER" >> $GITHUB_OUTPUT
+          echo "secret_name=$CONFIG_NAME" >> $GITHUB_OUTPUT
+          echo "router_name=$ROUTER_NAME" >> $GITHUB_OUTPUT
 
-      # 🔑 Fetch secrets securely (NO FILES)
+          echo "Using config: $CONFIG_NAME"
+          echo "Using router: $ROUTER_NAME"
+
+      # 🔑 Fetch BOTH secrets automatically
       - name: Fetch secrets from Key Vault
-        id: fetch_secrets
+        id: fetch
         run: |
           SECRET_NAME="${{ steps.naming.outputs.secret_name }}"
           ROUTER_NAME="${{ steps.naming.outputs.router_name }}"
 
-          echo "🔍 Fetching secrets from Azure Key Vault..."
+          echo "🔍 Fetching config: $SECRET_NAME"
 
           CONFIG=$(az keyvault secret show \
             --vault-name "${{ secrets.AZURE_VAULT_NAME }}" \
@@ -64,16 +60,26 @@ jobs:
             exit 1
           fi
 
+          echo "🔍 Fetching SAP router: $ROUTER_NAME"
+
           SAPROUTER=$(az keyvault secret show \
             --vault-name "${{ secrets.AZURE_VAULT_NAME }}" \
             --name "$ROUTER_NAME" \
             --query value -o tsv 2>/dev/null || echo "")
 
-          # 🔒 Mask secrets
+          if [ -z "$SAPROUTER" ]; then
+            echo "⚠️ No SAP router config found (optional)"
+            SAPROUTER_FOUND=false
+          else
+            echo "✅ SAP router config loaded"
+            SAPROUTER_FOUND=true
+          fi
+
+          # 🔒 Mask everything
           echo "::add-mask::$CONFIG"
           echo "::add-mask::$SAPROUTER"
 
-          # 📤 Export as outputs (multi-line safe)
+          # 📤 Export safely
           echo "config<<EOF" >> $GITHUB_OUTPUT
           echo "$CONFIG" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
@@ -82,10 +88,15 @@ jobs:
           echo "$SAPROUTER" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
 
-          echo "✅ Secrets loaded securely"
+          echo "saprouter_found=$SAPROUTER_FOUND" >> $GITHUB_OUTPUT
 
-      # ✅ Confirmation (SAFE - no secret output)
-      - name: Verify fetch
+      # ✅ Safe confirmation
+      - name: Verify
         run: |
-          echo "Secrets successfully retrieved and stored in memory."
-          echo "Ready for next step (OpenShift injection)."
+          echo "Config loaded ✅"
+
+          if [ "${{ steps.fetch.outputs.saprouter_found }}" = "true" ]; then
+            echo "SAP Router loaded ✅"
+          else
+            echo "SAP Router not found (OK) ⚠️"
+          fi
