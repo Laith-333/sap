@@ -11,18 +11,8 @@ on:
         description: "Container / Server IP Address"
         required: true
 
-      container_port:
-        description: "Container Port (e.g. 3200, 8080)"
-        required: true
-        default: "80"
-
       saprouttab:
         description: "SAP Router rules (optional)"
-        required: false
-        default: ""
-
-      config_file:
-        description: "Path to custom config file (optional, e.g. configs/app.json)"
         required: false
         default: ""
 
@@ -58,35 +48,6 @@ jobs:
             exit 1
           fi
 
-      # 🔍 Validate Port
-      - name: Validate Port
-        run: |
-          PORT="${{ github.event.inputs.container_port }}"
-          if ! [[ $PORT =~ ^[0-9]+$ ]] || [ "$PORT" -lt 1 ] || [ "$PORT" -gt 65535 ]; then
-            echo "❌ Invalid port number (must be 1-65535)"
-            exit 1
-          fi
-
-      # 🔍 Validate config file exists (if provided)
-      - name: Validate config file
-        id: validate_config
-        run: |
-          CONFIG_FILE="${{ github.event.inputs.config_file }}"
-          
-          if [ -n "$CONFIG_FILE" ]; then
-            if [ ! -f "$CONFIG_FILE" ]; then
-              echo "❌ ERROR: Config file not found: $CONFIG_FILE"
-              echo "Available files in repo:"
-              find . -type f -name "*.json" -o -name "*.yaml" -o -name "*.yml" | head -10
-              exit 1
-            fi
-            echo "config_provided=true" >> $GITHUB_OUTPUT
-            echo "✅ Config file found: $CONFIG_FILE"
-          else
-            echo "config_provided=false" >> $GITHUB_OUTPUT
-            echo "ℹ️ No config file provided"
-          fi
-
       # 🧠 Generate secret names
       - name: Generate secret names
         id: naming
@@ -104,16 +65,18 @@ jobs:
           echo "secret_name=$SAFE" >> $GITHUB_OUTPUT
           echo "router_name=$ROUTER" >> $GITHUB_OUTPUT
 
-      # 📄 Create config.json
+      # 📄 Create config.json + SHOW PORT
       - name: Create config.json
         id: config
         run: |
           CLIENT="${{ github.event.inputs.client_name }}"
           IP="${{ github.event.inputs.server_ip }}"
-          PORT="${{ github.event.inputs.container_port }}"
 
           # Generate container name
           CONTAINER_NAME="container-${CLIENT}"
+
+          # 🔥 Auto Port (you can make this smarter later)
+          PORT=80
 
           jq -n \
             --arg client "$CLIENT" \
@@ -133,39 +96,6 @@ jobs:
           echo "✅ Generated config:"
           cat config.json
 
-      # 🔥 Prepare SAP Router (with strict error handling)
-      - name: Prepare saprouttab
-        id: saprouter
-        run: |
-          FILE="saprouter_temp/saprouttab"
-          INPUT="${{ github.event.inputs.saprouttab }}"
-          IP="${{ github.event.inputs.server_ip }}"
-
-          # Check if file exists in repo
-          if [ -f "$FILE" ]; then
-            echo "✅ Found file: $FILE"
-            cp "$FILE" saprouttab
-            echo "source=file" >> $GITHUB_OUTPUT
-            echo "File copied successfully"
-          elif [ -n "$INPUT" ]; then
-            echo "✅ Using input text"
-            echo "$INPUT" > saprouttab
-            echo "source=input" >> $GITHUB_OUTPUT
-          else
-            echo "✅ Creating default route"
-            echo "P $IP * *" > saprouttab
-            echo "source=default" >> $GITHUB_OUTPUT
-          fi
-
-          # Verify saprouttab was created
-          if [ ! -f "saprouttab" ]; then
-            echo "❌ ERROR: saprouttab file was not created"
-            exit 1
-          fi
-          
-          echo "✅ saprouttab ready:"
-          cat saprouttab
-
       # 📊 SHOW RESULT IN LOGS
       - name: Show Result
         run: |
@@ -174,10 +104,6 @@ jobs:
           echo "CONTAINER: ${{ steps.config.outputs.container }}"
           echo "IP: ${{ github.event.inputs.server_ip }}"
           echo "PORT: ${{ steps.config.outputs.port }}"
-          echo "SAPROUTTAB SOURCE: ${{ steps.saprouter.outputs.source }}"
-          if [ "${{ steps.validate_config.outputs.config_provided }}" = "true" ]; then
-            echo "CONFIG FILE: ${{ github.event.inputs.config_file }} ✅"
-          fi
           echo "=============================="
 
       # 🧾 GitHub Summary (Nice UI)
@@ -191,7 +117,21 @@ jobs:
           echo "| Container | ${{ steps.config.outputs.container }} |" >> $GITHUB_STEP_SUMMARY
           echo "| IP | ${{ github.event.inputs.server_ip }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Port | ${{ steps.config.outputs.port }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| SAP Router | ${{ steps.saprouter.outputs.source }} |" >> $GITHUB_STEP_SUMMARY
+
+      # 🔥 Prepare SAP Router
+      - name: Prepare saprouttab
+        run: |
+          FILE="saprouter_temp/saprouttab"
+          INPUT="${{ github.event.inputs.saprouttab }}"
+          IP="${{ github.event.inputs.server_ip }}"
+
+          if [ -f "$FILE" ]; then
+            cp "$FILE" saprouttab
+          elif [ -n "$INPUT" ]; then
+            echo "$INPUT" > saprouttab
+          else
+            echo "P $IP * *" > saprouttab
+          fi
 
       # 🔐 Upload client config
       - name: Upload client config
@@ -201,7 +141,6 @@ jobs:
             --name "${{ steps.naming.outputs.secret_name }}" \
             --file config.json \
             --only-show-errors
-          echo "✅ Uploaded: ${{ steps.naming.outputs.secret_name }}"
 
       # 🔐 Upload saprouttab
       - name: Upload saprouttab
@@ -211,32 +150,10 @@ jobs:
             --name "${{ steps.naming.outputs.router_name }}" \
             --file saprouttab \
             --only-show-errors
-          echo "✅ Uploaded: ${{ steps.naming.outputs.router_name }}"
-
-      # 🔐 Upload custom config file (if provided)
-      - name: Upload custom config
-        if: steps.validate_config.outputs.config_provided == 'true'
-        run: |
-          CONFIG_FILE="${{ github.event.inputs.config_file }}"
-          CONFIG_NAME=$(basename "$CONFIG_FILE" | sed 's/\..*//')
-          
-          if [ ! -f "$CONFIG_FILE" ]; then
-            echo "❌ ERROR: File disappeared: $CONFIG_FILE"
-            exit 1
-          fi
-          
-          az keyvault secret set \
-            --vault-name "${{ secrets.AZURE_VAULT_NAME }}" \
-            --name "config-$CONFIG_NAME" \
-            --file "$CONFIG_FILE" \
-            --only-show-errors
-          echo "✅ Uploaded: config-$CONFIG_NAME"
 
       # 🧹 Cleanup
       - name: Cleanup runner files
-        run: |
-          rm -f config.json saprouttab
-          echo "✅ Cleaned up temporary files"
+        run: rm -f config.json saprouttab
 
       # 🔥 Delete sensitive file from repo
       - name: Delete saprouter_temp/saprouttab from repo
@@ -245,11 +162,6 @@ jobs:
 
           if [ -f "$FILE" ]; then
             SHA=$(git ls-files -s $FILE | awk '{print $2}')
-
-            if [ -z "$SHA" ]; then
-              echo "⚠️ File not tracked in git: $FILE"
-              exit 0
-            fi
 
             curl -s -X DELETE \
               -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
@@ -260,7 +172,4 @@ jobs:
                 \"sha\": \"$SHA\",
                 \"branch\": \"${{ github.ref_name }}\"
               }"
-            echo "✅ Deleted from repo: $FILE"
-          else
-            echo "ℹ️ File doesn't exist: $FILE"
           fi
