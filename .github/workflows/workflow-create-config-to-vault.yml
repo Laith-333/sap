@@ -11,6 +11,11 @@ on:
         description: "Container / Server IP Address"
         required: true
 
+      container_port:
+        description: "Container Port (e.g. 3200, 8080)"
+        required: true
+        default: "80"
+
       saprouttab:
         description: "SAP Router rules (optional)"
         required: false
@@ -48,6 +53,15 @@ jobs:
             exit 1
           fi
 
+      # 🔍 Validate Port
+      - name: Validate Port
+        run: |
+          PORT="${{ github.event.inputs.container_port }}"
+          if ! [[ $PORT =~ ^[0-9]+$ ]] || [ "$PORT" -lt 1 ] || [ "$PORT" -gt 65535 ]; then
+            echo "❌ Invalid port number (must be 1-65535)"
+            exit 1
+          fi
+
       # 🧠 Generate secret names
       - name: Generate secret names
         id: naming
@@ -71,12 +85,10 @@ jobs:
         run: |
           CLIENT="${{ github.event.inputs.client_name }}"
           IP="${{ github.event.inputs.server_ip }}"
+          PORT="${{ github.event.inputs.container_port }}"
 
           # Generate container name
           CONTAINER_NAME="container-${CLIENT}"
-
-          # 🔥 Auto Port (you can make this smarter later)
-          PORT=80
 
           jq -n \
             --arg client "$CLIENT" \
