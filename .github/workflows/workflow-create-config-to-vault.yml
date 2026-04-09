@@ -11,11 +11,6 @@ on:
         description: "Container / Server IP Address"
         required: true
 
-      service:
-        description: "Service Type (web, db, api)"
-        required: true
-        default: "web"
-
       saprouttab:
         description: "SAP Router rules (optional)"
         required: false
@@ -30,8 +25,7 @@ jobs:
 
     steps:
       # 📥 Checkout
-      - name: Checkout repo
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
       # 🔐 Azure Login
       - name: Azure Login
@@ -71,26 +65,17 @@ jobs:
           echo "secret_name=$SAFE" >> $GITHUB_OUTPUT
           echo "router_name=$ROUTER" >> $GITHUB_OUTPUT
 
-      # 📄 Create config.json (REAL DATA)
+      # 📄 Create config.json (NO SERVICE, WITH PORT)
       - name: Create config.json
         run: |
           CLIENT="${{ github.event.inputs.client_name }}"
           IP="${{ github.event.inputs.server_ip }}"
-          SERVICE="${{ github.event.inputs.service }}"
 
           # Generate container name
-          CONTAINER_NAME="container-${CLIENT}-${SERVICE}"
+          CONTAINER_NAME="container-${CLIENT}"
 
-          # Assign port based on service
-          if [ "$SERVICE" = "web" ]; then
-            PORT=80
-          elif [ "$SERVICE" = "api" ]; then
-            PORT=8080
-          elif [ "$SERVICE" = "db" ]; then
-            PORT=5432
-          else
-            PORT=3000
-          fi
+          # Default port (you can change this logic if needed)
+          PORT=80
 
           jq -n \
             --arg client "$CLIENT" \
@@ -115,22 +100,14 @@ jobs:
           IP="${{ github.event.inputs.server_ip }}"
 
           if [ -f "$FILE" ]; then
-            echo "✅ Using saprouter_temp/saprouttab"
             cp "$FILE" saprouttab
-
           elif [ -n "$INPUT" ]; then
-            echo "⚠️ Using input from UI"
             echo "$INPUT" > saprouttab
-
           else
-            echo "⚠️ Using default SAP rule"
             echo "P $IP * *" > saprouttab
           fi
 
-          echo "📄 saprouttab content:"
-          cat saprouttab
-
-      # 🔐 Upload client config to Key Vault
+      # 🔐 Upload client config
       - name: Upload client config
         run: |
           az keyvault secret set \
@@ -148,19 +125,16 @@ jobs:
             --file saprouttab \
             --only-show-errors
 
-      # 🧹 Cleanup runner files
+      # 🧹 Cleanup
       - name: Cleanup runner files
-        run: |
-          rm -f config.json saprouttab
+        run: rm -f config.json saprouttab
 
-      # 🔥 DELETE sensitive file from repo
+      # 🔥 Delete sensitive file from repo
       - name: Delete saprouter_temp/saprouttab from repo
         run: |
           FILE="saprouter_temp/saprouttab"
 
           if [ -f "$FILE" ]; then
-            echo "🧹 Deleting $FILE from repo"
-
             SHA=$(git ls-files -s $FILE | awk '{print $2}')
 
             curl -s -X DELETE \
@@ -168,11 +142,8 @@ jobs:
               -H "Accept: application/vnd.github+json" \
               https://api.github.com/repos/${{ github.repository }}/contents/$FILE \
               -d "{
-                \"message\": \"🔥 remove sensitive saprouter_temp/saprouttab\",
+                \"message\": \"remove sensitive saprouter_temp/saprouttab\",
                 \"sha\": \"$SHA\",
                 \"branch\": \"${{ github.ref_name }}\"
               }"
-
-          else
-            echo "No saprouter_temp/saprouttab found"
           fi
