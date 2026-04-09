@@ -1,4 +1,4 @@
-name: Create Client + SAP Router Config (Key Vault)
+name: Create Client + SAP Router Config (Key Vault + File Upload)
 
 on:
   workflow_dispatch:
@@ -18,6 +18,16 @@ on:
 
       saprouttab:
         description: "SAP Router rules (optional)"
+        required: false
+        default: ""
+
+      custom_file_name:
+        description: "Secret name for custom file (optional, e.g. app-config)"
+        required: false
+        default: ""
+
+      custom_file_content:
+        description: "Custom file content to upload to Key Vault (JSON, YAML, or plain text)"
         required: false
         default: ""
 
@@ -79,7 +89,7 @@ jobs:
           echo "secret_name=$SAFE" >> $GITHUB_OUTPUT
           echo "router_name=$ROUTER" >> $GITHUB_OUTPUT
 
-      # 📄 Create config.json + SHOW PORT
+      # 📄 Create config.json
       - name: Create config.json
         id: config
         run: |
@@ -108,6 +118,28 @@ jobs:
           echo "✅ Generated config:"
           cat config.json
 
+      # 📄 Create custom file (if provided)
+      - name: Create custom file
+        id: custom_file
+        run: |
+          CUSTOM_NAME="${{ github.event.inputs.custom_file_name }}"
+          CUSTOM_CONTENT="${{ github.event.inputs.custom_file_content }}"
+
+          if [ -n "$CUSTOM_NAME" ] && [ -n "$CUSTOM_CONTENT" ]; then
+            # Create a temporary file with custom content
+            echo "$CUSTOM_CONTENT" > custom_upload.txt
+
+            echo "file_created=true" >> $GITHUB_OUTPUT
+            echo "file_name=$CUSTOM_NAME" >> $GITHUB_OUTPUT
+            echo "✅ Custom file prepared: $CUSTOM_NAME"
+            echo "Content preview:"
+            head -c 200 custom_upload.txt
+            echo ""
+          else
+            echo "file_created=false" >> $GITHUB_OUTPUT
+            echo "ℹ️ No custom file provided"
+          fi
+
       # 📊 SHOW RESULT IN LOGS
       - name: Show Result
         run: |
@@ -116,6 +148,9 @@ jobs:
           echo "CONTAINER: ${{ steps.config.outputs.container }}"
           echo "IP: ${{ github.event.inputs.server_ip }}"
           echo "PORT: ${{ steps.config.outputs.port }}"
+          if [ "${{ steps.custom_file.outputs.file_created }}" = "true" ]; then
+            echo "CUSTOM FILE: ${{ steps.custom_file.outputs.file_name }} ✅"
+          fi
           echo "=============================="
 
       # 🧾 GitHub Summary (Nice UI)
@@ -129,6 +164,9 @@ jobs:
           echo "| Container | ${{ steps.config.outputs.container }} |" >> $GITHUB_STEP_SUMMARY
           echo "| IP | ${{ github.event.inputs.server_ip }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Port | ${{ steps.config.outputs.port }} |" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ steps.custom_file.outputs.file_created }}" = "true" ]; then
+            echo "| Custom File | ${{ steps.custom_file.outputs.file_name }} |" >> $GITHUB_STEP_SUMMARY
+          fi
 
       # 🔥 Prepare SAP Router
       - name: Prepare saprouttab
@@ -153,6 +191,7 @@ jobs:
             --name "${{ steps.naming.outputs.secret_name }}" \
             --file config.json \
             --only-show-errors
+          echo "✅ Uploaded: ${{ steps.naming.outputs.secret_name }}"
 
       # 🔐 Upload saprouttab
       - name: Upload saprouttab
@@ -162,10 +201,22 @@ jobs:
             --name "${{ steps.naming.outputs.router_name }}" \
             --file saprouttab \
             --only-show-errors
+          echo "✅ Uploaded: ${{ steps.naming.outputs.router_name }}"
+
+      # 🔐 Upload custom file (if provided)
+      - name: Upload custom file
+        if: steps.custom_file.outputs.file_created == 'true'
+        run: |
+          az keyvault secret set \
+            --vault-name "${{ secrets.AZURE_VAULT_NAME }}" \
+            --name "${{ steps.custom_file.outputs.file_name }}" \
+            --file custom_upload.txt \
+            --only-show-errors
+          echo "✅ Uploaded custom file: ${{ steps.custom_file.outputs.file_name }}"
 
       # 🧹 Cleanup
       - name: Cleanup runner files
-        run: rm -f config.json saprouttab
+        run: rm -f config.json saprouttab custom_upload.txt
 
       # 🔥 Delete sensitive file from repo
       - name: Delete saprouter_temp/saprouttab from repo
