@@ -166,9 +166,23 @@ jobs:
             --only-show-errors
           echo "✅ Uploaded: ${{ steps.naming.outputs.secret_name }}"
 
-      # 🔐 Upload saprouttab (ONLY if file exists)
+      # 🔐 Check if saprouter file exists before upload (FAIL if missing)
+      - name: Verify saprouter file exists
+        run: |
+          FILE="saprouter_temp/saprouttab"
+          if [ ! -f "$FILE" ]; then
+            echo "❌ ERROR: SAP Router file not found: $FILE"
+            echo ""
+            echo "This file is required. Please commit it to the repository:"
+            echo "  Path: saprouter_temp/saprouttab"
+            echo ""
+            echo "Available files in repo:"
+            find . -type f -name "*saprouttab*" -o -name "*router*" 2>/dev/null | head -5 || echo "  (none found)"
+            exit 1
+          fi
+
+      # 🔐 Upload saprouttab
       - name: Upload saprouttab
-        if: steps.saprouter_check.outputs.file_exists == 'true'
         run: |
           FILE="saprouter_temp/saprouttab"
           az keyvault secret set \
@@ -176,14 +190,7 @@ jobs:
             --name "${{ steps.naming.outputs.router_name }}" \
             --file "$FILE" \
             --only-show-errors
-          echo "✅ Uploaded: ${{ steps.naming.outputs.router_name }}"
-
-      # ⏭️ Skip message if file not found
-      - name: Saprouter file skipped
-        if: steps.saprouter_check.outputs.file_exists == 'false'
-        run: |
-          echo "ℹ️ Skipped uploading saprouttab (file not found in repo)"
-          echo "To include it, commit saprouter_temp/saprouttab to the repository"
+          echo "✅ Uploaded: ${{ steps.naming.outputs.router_name }}""
 
       # 🧹 Cleanup
       - name: Cleanup runner files
