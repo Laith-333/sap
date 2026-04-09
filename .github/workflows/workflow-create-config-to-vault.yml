@@ -11,6 +11,11 @@ on:
         description: "Container / Server IP Address"
         required: true
 
+      container_port:
+        description: "Container Port (e.g. 3200, 8080)"
+        required: true
+        default: "80"
+
       saprouttab:
         description: "SAP Router rules (optional)"
         required: false
@@ -48,6 +53,15 @@ jobs:
             exit 1
           fi
 
+      # 🔍 Validate Port
+      - name: Validate Port
+        run: |
+          PORT="${{ github.event.inputs.container_port }}"
+          if ! [[ $PORT =~ ^[0-9]+$ ]] || [ "$PORT" -lt 1 ] || [ "$PORT" -gt 65535 ]; then
+            echo "❌ Invalid port number (must be 1-65535)"
+            exit 1
+          fi
+
       # 🧠 Generate secret names
       - name: Generate secret names
         id: naming
@@ -65,18 +79,16 @@ jobs:
           echo "secret_name=$SAFE" >> $GITHUB_OUTPUT
           echo "router_name=$ROUTER" >> $GITHUB_OUTPUT
 
-      # 📄 Create config.json + SHOW PORT
+      # 📄 Create config.json
       - name: Create config.json
         id: config
         run: |
           CLIENT="${{ github.event.inputs.client_name }}"
           IP="${{ github.event.inputs.server_ip }}"
+          PORT="${{ github.event.inputs.container_port }}"
 
           # Generate container name
           CONTAINER_NAME="container-${CLIENT}"
-
-          # 🔥 Auto Port (you can make this smarter later)
-          PORT=80
 
           jq -n \
             --arg client "$CLIENT" \
@@ -96,6 +108,22 @@ jobs:
           echo "✅ Generated config:"
           cat config.json
 
+      # 🔥 Check if saprouter file exists
+      - name: Check saprouter file
+        id: saprouter_check
+        run: |
+          FILE="saprouter_temp/saprouttab"
+          
+          if [ -f "$FILE" ]; then
+            echo "file_exists=true" >> $GITHUB_OUTPUT
+            echo "✅ Found: $FILE"
+            echo "Lines:"
+            wc -l "$FILE"
+          else
+            echo "file_exists=false" >> $GITHUB_OUTPUT
+            echo "ℹ️ File not found: $FILE (will skip upload)"
+          fi
+
       # 📊 SHOW RESULT IN LOGS
       - name: Show Result
         run: |
@@ -104,6 +132,11 @@ jobs:
           echo "CONTAINER: ${{ steps.config.outputs.container }}"
           echo "IP: ${{ github.event.inputs.server_ip }}"
           echo "PORT: ${{ steps.config.outputs.port }}"
+          if [ "${{ steps.saprouter_check.outputs.file_exists }}" = "true" ]; then
+            echo "SAPROUTER FILE: EXISTS ✅"
+          else
+            echo "SAPROUTER FILE: NOT FOUND (will skip) ⏭️"
+          fi
           echo "=============================="
 
       # 🧾 GitHub Summary (Nice UI)
@@ -117,20 +150,10 @@ jobs:
           echo "| Container | ${{ steps.config.outputs.container }} |" >> $GITHUB_STEP_SUMMARY
           echo "| IP | ${{ github.event.inputs.server_ip }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Port | ${{ steps.config.outputs.port }} |" >> $GITHUB_STEP_SUMMARY
-
-      # 🔥 Prepare SAP Router
-      - name: Prepare saprouttab
-        run: |
-          FILE="saprouter_temp/saprouttab"
-          INPUT="${{ github.event.inputs.saprouttab }}"
-          IP="${{ github.event.inputs.server_ip }}"
-
-          if [ -f "$FILE" ]; then
-            cp "$FILE" saprouttab
-          elif [ -n "$INPUT" ]; then
-            echo "$INPUT" > saprouttab
+          if [ "${{ steps.saprouter_check.outputs.file_exists }}" = "true" ]; then
+            echo "| SAP Router | File found and uploaded |" >> $GITHUB_STEP_SUMMARY
           else
-            echo "P $IP * *" > saprouttab
+            echo "| SAP Router | File not found (skipped) |" >> $GITHUB_STEP_SUMMARY
           fi
 
       # 🔐 Upload client config
@@ -141,35 +164,29 @@ jobs:
             --name "${{ steps.naming.outputs.secret_name }}" \
             --file config.json \
             --only-show-errors
+          echo "✅ Uploaded: ${{ steps.naming.outputs.secret_name }}"
 
-      # 🔐 Upload saprouttab
+      # 🔐 Upload saprouttab (ONLY if file exists)
       - name: Upload saprouttab
+        if: steps.saprouter_check.outputs.file_exists == 'true'
         run: |
+          FILE="saprouter_temp/saprouttab"
           az keyvault secret set \
             --vault-name "${{ secrets.AZURE_VAULT_NAME }}" \
             --name "${{ steps.naming.outputs.router_name }}" \
-            --file saprouttab \
+            --file "$FILE" \
             --only-show-errors
+          echo "✅ Uploaded: ${{ steps.naming.outputs.router_name }}"
+
+      # ⏭️ Skip message if file not found
+      - name: Saprouter file skipped
+        if: steps.saprouter_check.outputs.file_exists == 'false'
+        run: |
+          echo "ℹ️ Skipped uploading saprouttab (file not found in repo)"
+          echo "To include it, commit saprouter_temp/saprouttab to the repository"
 
       # 🧹 Cleanup
       - name: Cleanup runner files
-        run: rm -f config.json saprouttab
-
-      # 🔥 Delete sensitive file from repo
-      - name: Delete saprouter_temp/saprouttab from repo
         run: |
-          FILE="saprouter_temp/saprouttab"
-
-          if [ -f "$FILE" ]; then
-            SHA=$(git ls-files -s $FILE | awk '{print $2}')
-
-            curl -s -X DELETE \
-              -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
-              -H "Accept: application/vnd.github+json" \
-              https://api.github.com/repos/${{ github.repository }}/contents/$FILE \
-              -d "{
-                \"message\": \"remove sensitive saprouter_temp/saprouttab\",
-                \"sha\": \"$SHA\",
-                \"branch\": \"${{ github.ref_name }}\"
-              }"
-          fi
+          rm -f config.json
+          echo "✅ Cleaned up temporary files"
