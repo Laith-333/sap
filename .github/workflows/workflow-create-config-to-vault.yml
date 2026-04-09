@@ -65,8 +65,9 @@ jobs:
           echo "secret_name=$SAFE" >> $GITHUB_OUTPUT
           echo "router_name=$ROUTER" >> $GITHUB_OUTPUT
 
-      # 📄 Create config.json (NO SERVICE, WITH PORT)
+      # 📄 Create config.json + SHOW PORT
       - name: Create config.json
+        id: config
         run: |
           CLIENT="${{ github.event.inputs.client_name }}"
           IP="${{ github.event.inputs.server_ip }}"
@@ -74,7 +75,7 @@ jobs:
           # Generate container name
           CONTAINER_NAME="container-${CLIENT}"
 
-          # Default port (you can change this logic if needed)
+          # 🔥 Auto Port (you can make this smarter later)
           PORT=80
 
           jq -n \
@@ -89,8 +90,33 @@ jobs:
               port: $port
             }' > config.json
 
+          echo "port=$PORT" >> $GITHUB_OUTPUT
+          echo "container=$CONTAINER_NAME" >> $GITHUB_OUTPUT
+
           echo "✅ Generated config:"
           cat config.json
+
+      # 📊 SHOW RESULT IN LOGS
+      - name: Show Result
+        run: |
+          echo "=============================="
+          echo "CLIENT: ${{ github.event.inputs.client_name }}"
+          echo "CONTAINER: ${{ steps.config.outputs.container }}"
+          echo "IP: ${{ github.event.inputs.server_ip }}"
+          echo "PORT: ${{ steps.config.outputs.port }}"
+          echo "=============================="
+
+      # 🧾 GitHub Summary (Nice UI)
+      - name: Write Summary
+        run: |
+          echo "## ✅ Client Configuration Created" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Field | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Client | ${{ github.event.inputs.client_name }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Container | ${{ steps.config.outputs.container }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| IP | ${{ github.event.inputs.server_ip }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Port | ${{ steps.config.outputs.port }} |" >> $GITHUB_STEP_SUMMARY
 
       # 🔥 Prepare SAP Router
       - name: Prepare saprouttab
