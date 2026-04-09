@@ -8,18 +8,8 @@ on:
         required: true
 
       server_ip:
-        description: "Server IP Address"
+        description: "Container / Server IP Address"
         required: true
-
-      network:
-        description: "Network / Subnet"
-        required: true
-        type: choice
-        options:
-          - production-network
-          - staging-network
-          - dev-network
-          - dmz-network
 
       service:
         description: "Service Type (web, db, api)"
@@ -40,7 +30,8 @@ jobs:
 
     steps:
       # 📥 Checkout
-      - uses: actions/checkout@v4
+      - name: Checkout repo
+        uses: actions/checkout@v4
 
       # 🔐 Azure Login
       - name: Azure Login
@@ -59,11 +50,11 @@ jobs:
         run: |
           IP="${{ github.event.inputs.server_ip }}"
           if ! [[ $IP =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]]; then
-            echo "❌ Invalid IP"
+            echo "❌ Invalid IP address"
             exit 1
           fi
 
-      # 🧠 Generate names
+      # 🧠 Generate secret names
       - name: Generate secret names
         id: naming
         run: |
@@ -80,22 +71,43 @@ jobs:
           echo "secret_name=$SAFE" >> $GITHUB_OUTPUT
           echo "router_name=$ROUTER" >> $GITHUB_OUTPUT
 
-      # 📄 Create config.json
+      # 📄 Create config.json (REAL DATA)
       - name: Create config.json
         run: |
+          CLIENT="${{ github.event.inputs.client_name }}"
+          IP="${{ github.event.inputs.server_ip }}"
+          SERVICE="${{ github.event.inputs.service }}"
+
+          # Generate container name
+          CONTAINER_NAME="container-${CLIENT}-${SERVICE}"
+
+          # Assign port based on service
+          if [ "$SERVICE" = "web" ]; then
+            PORT=80
+          elif [ "$SERVICE" = "api" ]; then
+            PORT=8080
+          elif [ "$SERVICE" = "db" ]; then
+            PORT=5432
+          else
+            PORT=3000
+          fi
+
           jq -n \
-            --arg client "${{ github.event.inputs.client_name }}" \
-            --arg ip "${{ github.event.inputs.server_ip }}" \
-            --arg net "${{ github.event.inputs.network }}" \
-            --arg svc "${{ github.event.inputs.service }}" \
+            --arg client "$CLIENT" \
+            --arg cname "$CONTAINER_NAME" \
+            --arg ip "$IP" \
+            --arg port "$PORT" \
             '{
               client_name: $client,
-              server_ip: $ip,
-              network: $net,
-              service: $svc
+              container_name: $cname,
+              container_ip: $ip,
+              port: $port
             }' > config.json
 
-      # 🔥 Prepare SAP Router (FIXED PATH)
+          echo "✅ Generated config:"
+          cat config.json
+
+      # 🔥 Prepare SAP Router
       - name: Prepare saprouttab
         run: |
           FILE="saprouter_temp/saprouttab"
@@ -115,9 +127,10 @@ jobs:
             echo "P $IP * *" > saprouttab
           fi
 
-          wc -l saprouttab
+          echo "📄 saprouttab content:"
+          cat saprouttab
 
-      # 🔐 Upload client config
+      # 🔐 Upload client config to Key Vault
       - name: Upload client config
         run: |
           az keyvault secret set \
@@ -138,16 +151,15 @@ jobs:
       # 🧹 Cleanup runner files
       - name: Cleanup runner files
         run: |
-          rm -f config.json
-          rm -f saprouttab
+          rm -f config.json saprouttab
 
-      # 🔥 DELETE FROM GITHUB REPO (FIXED PATH)
+      # 🔥 DELETE sensitive file from repo
       - name: Delete saprouter_temp/saprouttab from repo
         run: |
           FILE="saprouter_temp/saprouttab"
 
           if [ -f "$FILE" ]; then
-            echo "🧹 Deleting $FILE from GitHub repo"
+            echo "🧹 Deleting $FILE from repo"
 
             SHA=$(git ls-files -s $FILE | awk '{print $2}')
 
@@ -162,5 +174,5 @@ jobs:
               }"
 
           else
-            echo "File not found in repo"
+            echo "No saprouter_temp/saprouttab found"
           fi
