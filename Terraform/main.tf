@@ -4,24 +4,17 @@ provider "azurerm" {
 
 data "azurerm_client_config" "current" {}
 
-# -------------------------
-# Resource Group (existing)
-# -------------------------
 data "azurerm_resource_group" "rg" {
   name = var.resource_group_name
 }
 
-# -------------------------
-# Key Vault (existing)
-# -------------------------
+
 data "azurerm_key_vault" "kv" {
   name                = var.key_vault_name
   resource_group_name = data.azurerm_resource_group.rg.name
 }
 
-# -------------------------
-# Upload Secret
-# -------------------------
+
 resource "azurerm_key_vault_secret" "config" {
   name         = var.secret_name
   value        = file(var.file_path)
