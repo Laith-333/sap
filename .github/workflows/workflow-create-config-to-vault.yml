@@ -4,24 +4,31 @@ on:
   workflow_dispatch:
     inputs:
       client_name:
-        description: "Client name (e.g. sap, microsoft)"
+        description: "Client Name (e.g. sap, microsoft)"
         required: true
         type: string
 
       server_ip:
-        description: "Container / Server IP address"
+        description: "Container / Server IP Address"
         required: true
         type: string
 
       container_port:
-        description: "Container port (1-65535)"
+        description: "Container Port (e.g. 3200, 8080)"
         required: true
         default: "80"
         type: string
 
+      saprouter_file_path:
+        description: "Path to saprouttab file in repo"
+        required: false
+        default: "saprouter_temp/saprouttab"
+        type: string
+
       saprouttab:
-        description: "Paste SAP Router rules content"
-        required: true
+        description: "Optional SAP Router rules text fallback"
+        required: false
+        default: ""
         type: string
 
 permissions:
@@ -32,7 +39,8 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repo
+        uses: actions/checkout@v4
 
       - name: Azure Login
         uses: azure/login@v2
@@ -74,15 +82,6 @@ jobs:
             exit 1
           fi
 
-      - name: Validate saprouttab input
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [ -z "${{ github.event.inputs.saprouttab }}" ]; then
-            echo "saprouttab input is required"
-            exit 1
-          fi
-
       - name: Generate secret names
         id: naming
         shell: bash
@@ -107,17 +106,16 @@ jobs:
           echo "router_name=$ROUTER_NAME" >> "$GITHUB_OUTPUT"
           echo "container_name=$CONTAINER_NAME" >> "$GITHUB_OUTPUT"
 
-      - name: Create temp files
-        id: files
+      - name: Create temp config file
+        id: tempfiles
         shell: bash
         run: |
           set -euo pipefail
-
           CONFIG_FILE="$(mktemp)"
-          ROUTER_FILE="$(mktemp)"
+          ROUTER_INPUT_FILE="$(mktemp)"
 
           echo "config_file=$CONFIG_FILE" >> "$GITHUB_OUTPUT"
-          echo "router_file=$ROUTER_FILE" >> "$GITHUB_OUTPUT"
+          echo "router_input_file=$ROUTER_INPUT_FILE" >> "$GITHUB_OUTPUT"
 
       - name: Create config.json
         shell: bash
@@ -128,7 +126,7 @@ jobs:
           IP="${{ github.event.inputs.server_ip }}"
           PORT="${{ github.event.inputs.container_port }}"
           CONTAINER="${{ steps.naming.outputs.container_name }}"
-          CONFIG_FILE="${{ steps.files.outputs.config_file }}"
+          CONFIG_FILE="${{ steps.tempfiles.outputs.config_file }}"
 
           jq -n \
             --arg client "$CLIENT" \
@@ -142,12 +140,41 @@ jobs:
               port: $port
             }' > "$CONFIG_FILE"
 
-      - name: Create saprouttab temp file
+      - name: Create fallback saprouttab temp file
+        if: ${{ github.event.inputs.saprouttab != '' }}
         shell: bash
         run: |
           set -euo pipefail
-          ROUTER_FILE="${{ steps.files.outputs.router_file }}"
-          printf '%s\n' "${{ github.event.inputs.saprouttab }}" > "$ROUTER_FILE"
+          printf '%s\n' "${{ github.event.inputs.saprouttab }}" > "${{ steps.tempfiles.outputs.router_input_file }}"
+
+      - name: Resolve SAP router file source
+        id: routerfile
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          REPO_FILE="${{ github.event.inputs.saprouter_file_path }}"
+          INPUT_FILE="${{ steps.tempfiles.outputs.router_input_file }}"
+
+          if [ -n "$REPO_FILE" ] && [ -f "$REPO_FILE" ]; then
+            echo "Using SAP router file from repo path: $REPO_FILE"
+            echo "resolved_file=$REPO_FILE" >> "$GITHUB_OUTPUT"
+            echo "source=repo" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if [ -s "$INPUT_FILE" ]; then
+            echo "Repo file not found, using SAP router rules from workflow input"
+            echo "resolved_file=$INPUT_FILE" >> "$GITHUB_OUTPUT"
+            echo "source=input" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "ERROR: No SAP router file found."
+          echo "Checked repo path: $REPO_FILE"
+          echo "Also no saprouttab input was provided."
+          echo "Provide a valid repo path or paste saprouttab content."
+          exit 1
 
       - name: Upload client config to Key Vault
         shell: bash
@@ -156,7 +183,7 @@ jobs:
           az keyvault secret set \
             --vault-name "${{ secrets.AZURE_VAULT_NAME }}" \
             --name "${{ steps.naming.outputs.secret_name }}" \
-            --file "${{ steps.files.outputs.config_file }}" \
+            --file "${{ steps.tempfiles.outputs.config_file }}" \
             --only-show-errors 1>/dev/null
 
       - name: Upload saprouttab to Key Vault
@@ -166,7 +193,7 @@ jobs:
           az keyvault secret set \
             --vault-name "${{ secrets.AZURE_VAULT_NAME }}" \
             --name "${{ steps.naming.outputs.router_name }}" \
-            --file "${{ steps.files.outputs.router_file }}" \
+            --file "${{ steps.routerfile.outputs.resolved_file }}" \
             --only-show-errors 1>/dev/null
 
       - name: Write safe summary
@@ -181,6 +208,8 @@ jobs:
             echo "| Container | ${{ steps.naming.outputs.container_name }} |"
             echo "| Config secret | ${{ steps.naming.outputs.secret_name }} |"
             echo "| Router secret | ${{ steps.naming.outputs.router_name }} |"
+            echo "| Router source | ${{ steps.routerfile.outputs.source }} |"
+            echo "| Router repo path input | ${{ github.event.inputs.saprouter_file_path }} |"
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Cleanup temp files
@@ -188,5 +217,5 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          shred -u "${{ steps.files.outputs.config_file }}" 2>/dev/null || rm -f "${{ steps.files.outputs.config_file }}"
-          shred -u "${{ steps.files.outputs.router_file }}" 2>/dev/null || rm -f "${{ steps.files.outputs.router_file }}"
+          rm -f "${{ steps.tempfiles.outputs.config_file }}"
+          rm -f "${{ steps.tempfiles.outputs.router_input_file }}"
