@@ -153,7 +153,55 @@ jobs:
               port: $port
             }' > "$CONFIG_FILE"
 
+      - name: Check if client config secret already exists
+        id: check_client_secret
+        shell: bash
+        run: |
+          set +e
+
+          SECRET_NAME="${{ steps.naming.outputs.secret_name }}"
+
+          az keyvault secret show \
+            --vault-name "${{ secrets.AZURE_VAULT_NAME }}" \
+            --name "$SECRET_NAME" \
+            --only-show-errors 1>/dev/null 2>/dev/null
+
+          STATUS=$?
+
+          if [ $STATUS -eq 0 ]; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "⚠️ Client config secret already exists in Key Vault: $SECRET_NAME"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+            echo "✅ Client config secret does not exist yet: $SECRET_NAME"
+          fi
+
+      - name: Check if SAP router secret already exists
+        id: check_router_secret
+        shell: bash
+        run: |
+          set +e
+
+          SECRET_NAME="${{ steps.naming.outputs.router_name }}"
+
+          az keyvault secret show \
+            --vault-name "${{ secrets.AZURE_VAULT_NAME }}" \
+            --name "$SECRET_NAME" \
+            --only-show-errors 1>/dev/null 2>/dev/null
+
+          STATUS=$?
+
+          if [ $STATUS -eq 0 ]; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "⚠️ SAP router secret already exists in Key Vault: $SECRET_NAME"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+            echo "✅ SAP router secret does not exist yet: $SECRET_NAME"
+          fi
+
       - name: Upload client config
+        id: upload_client
+        if: ${{ steps.check_client_secret.outputs.exists != 'true' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -163,9 +211,18 @@ jobs:
             --file "${{ steps.configfile.outputs.config_file }}" \
             --only-show-errors 1>/dev/null
 
+          echo "uploaded=true" >> "$GITHUB_OUTPUT"
           echo "✅ Uploaded client config secret: ${{ steps.naming.outputs.secret_name }}"
 
+      - name: Mark client config skipped
+        if: ${{ steps.check_client_secret.outputs.exists == 'true' }}
+        shell: bash
+        run: |
+          echo "⚠️ Skipped client config upload because secret already exists: ${{ steps.naming.outputs.secret_name }}"
+
       - name: Upload saprouttab
+        id: upload_router
+        if: ${{ steps.check_router_secret.outputs.exists != 'true' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -175,9 +232,17 @@ jobs:
             --file "${{ steps.routerfile.outputs.resolved_file }}" \
             --only-show-errors 1>/dev/null
 
+          echo "uploaded=true" >> "$GITHUB_OUTPUT"
           echo "✅ Uploaded SAP router secret: ${{ steps.naming.outputs.router_name }}"
 
+      - name: Mark saprouttab skipped
+        if: ${{ steps.check_router_secret.outputs.exists == 'true' }}
+        shell: bash
+        run: |
+          echo "⚠️ Skipped SAP router upload because secret already exists: ${{ steps.naming.outputs.router_name }}"
+
       - name: Delete saprouttab file from repo
+        if: ${{ steps.check_router_secret.outputs.exists != 'true' && steps.upload_router.outcomes != 'failure' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -222,19 +287,21 @@ jobs:
           fi
 
       - name: Write safe summary
+        if: always()
         shell: bash
         run: |
           {
-            echo "## ✅ Client Configuration Uploaded"
+            echo "## ✅ Client Configuration Process Finished"
             echo ""
             echo "| Field | Value |"
             echo "|------|--------|"
             echo "| Client | ${{ github.event.inputs.client_name }} |"
             echo "| Container | ${{ steps.naming.outputs.container_name }} |"
             echo "| Client secret | ${{ steps.naming.outputs.secret_name }} |"
+            echo "| Client secret already existed | ${{ steps.check_client_secret.outputs.exists }} |"
             echo "| Router secret | ${{ steps.naming.outputs.router_name }} |"
+            echo "| Router secret already existed | ${{ steps.check_router_secret.outputs.exists }} |"
             echo "| Router file path | ${{ github.event.inputs.saprouter_file_path }} |"
-            echo "| Router file deleted from repo | Yes |"
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Cleanup runner files
