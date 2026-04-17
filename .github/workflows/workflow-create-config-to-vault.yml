@@ -180,7 +180,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          REPO_FILE="${{ github.event.inputs.saprouter_file_path }}"
+          REPO_FILE="saprouter_temp/saprouttab"
           
           if [ -f "$REPO_FILE" ]; then
             echo "Deleting existing saprouttab file: $REPO_FILE"
