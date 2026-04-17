@@ -32,7 +32,7 @@ on:
         type: string
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   upload-config:
@@ -175,6 +175,19 @@ jobs:
           echo "Also no saprouttab input was provided."
           echo "Provide a valid repo path or paste saprouttab content."
           exit 1
+
+      - name: Delete existing saprouttab from repo if it exists
+        shell: bash
+        run: |
+          set -euo pipefail
+          REPO_FILE="${{ github.event.inputs.saprouter_file_path }}"
+          
+          if [ -f "$REPO_FILE" ]; then
+            echo "Deleting existing saprouttab file: $REPO_FILE"
+            rm -f "$REPO_FILE"
+          else
+            echo "No existing saprouttab file found at: $REPO_FILE"
+          fi
 
       - name: Upload client config to Key Vault
         shell: bash
