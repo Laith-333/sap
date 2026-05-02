@@ -1,19 +1,313 @@
-# Starter pipeline
-# Start with a minimal pipeline that you can customize to build and deploy your code.
-# Add steps that build, run tests, deploy, and more:
-# https://aka.ms/yaml
+name: Create Client + SAP Router Config (Key Vault)
 
-trigger:
-- main
+on:
+  workflow_dispatch:
+    inputs:
+      client_name:
+        description: "Client Name (e.g. sap, microsoft)"
+        required: true
+        type: string
 
-pool:
-  vmImage: ubuntu-latest
+      server_ip:
+        description: "Container / Server IP Address"
+        required: true
+        type: string
 
-steps:
-- script: echo Hello, world!
-  displayName: 'Run a one-line script'
+      container_port:
+        description: "Container Port (e.g. 3200, 8080)"
+        required: true
+        default: "80"
+        type: string
 
-- script: |
-    echo Add other tasks to build, test, and deploy your project.
-    echo See https://aka.ms/yaml
-  displayName: 'Run a multi-line script'
+      saprouter_file_path:
+        description: "Path to saprouttab file in repo"
+        required: false
+        default: "saprouter_temp/saprouttab"
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  upload-config:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          creds: |
+            {
+              "clientId": "${{ secrets.ARM_CLIENT_ID }}",
+              "clientSecret": "${{ secrets.ARM_CLIENT_SECRET }}",
+              "subscriptionId": "${{ secrets.ARM_SUBSCRIPTION_ID }}",
+              "tenantId": "${{ secrets.ARM_TENANT_ID }}"
+            }
+
+      - name: Validate IP
+        shell: bash
+        run: |
+          set -euo pipefail
+          IP="${{ github.event.inputs.server_ip }}"
+
+          if ! [[ "$IP" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]]; then
+            echo "❌ Invalid IP address format"
+            exit 1
+          fi
+
+          IFS='.' read -r o1 o2 o3 o4 <<< "$IP"
+          for octet in "$o1" "$o2" "$o3" "$o4"; do
+            if [ "$octet" -lt 0 ] || [ "$octet" -gt 255 ]; then
+              echo "❌ Invalid IP address"
+              exit 1
+            fi
+          done
+
+      - name: Validate Port
+        shell: bash
+        run: |
+          set -euo pipefail
+          PORT="${{ github.event.inputs.container_port }}"
+          if ! [[ "$PORT" =~ ^[0-9]+$ ]] || [ "$PORT" -lt 1 ] || [ "$PORT" -gt 65535 ]; then
+            echo "❌ Invalid port number (must be 1-65535)"
+            exit 1
+          fi
+
+      - name: Generate secret names
+        id: naming
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          INPUT="${{ github.event.inputs.client_name }}"
+
+          CLEAN=$(echo "$INPUT" \
+            | sed 's/^client-//' \
+            | tr '[:upper:]' '[:lower:]' \
+            | sed 's/[^a-z0-9-]/-/g' \
+            | sed 's/--*/-/g' \
+            | sed 's/^-//' \
+            | sed 's/-$//')
+
+          SECRET_NAME="client-$CLEAN"
+          ROUTER_NAME="saprouttab-$CLEAN"
+          CONTAINER_NAME="container-$CLEAN"
+
+          echo "secret_name=$SECRET_NAME" >> "$GITHUB_OUTPUT"
+          echo "router_name=$ROUTER_NAME" >> "$GITHUB_OUTPUT"
+          echo "container_name=$CONTAINER_NAME" >> "$GITHUB_OUTPUT"
+
+      - name: Resolve SAP router file
+        id: routerfile
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          FILE="${{ github.event.inputs.saprouter_file_path }}"
+
+          if [ -z "$FILE" ]; then
+            echo "❌ SAP router file path is empty"
+            exit 1
+          fi
+
+          if [ ! -f "$FILE" ]; then
+            echo "❌ SAP Router file not found: $FILE"
+            echo "Available matching files:"
+            find . -type f \( -name "saprouttab" -o -name "*saprouttab*" -o -name "*router*" \) | head -20 || true
+            exit 1
+          fi
+
+          echo "resolved_file=$FILE" >> "$GITHUB_OUTPUT"
+
+      - name: Create temp config file
+        id: configfile
+        shell: bash
+        run: |
+          set -euo pipefail
+          CONFIG_FILE="$(mktemp)"
+          echo "config_file=$CONFIG_FILE" >> "$GITHUB_OUTPUT"
+
+      - name: Create config.json
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          CLIENT="${{ github.event.inputs.client_name }}"
+          IP="${{ github.event.inputs.server_ip }}"
+          PORT="${{ github.event.inputs.container_port }}"
+          CONTAINER="${{ steps.naming.outputs.container_name }}"
+          CONFIG_FILE="${{ steps.configfile.outputs.config_file }}"
+
+          jq -n \
+            --arg client "$CLIENT" \
+            --arg cname "$CONTAINER" \
+            --arg ip "$IP" \
+            --arg port "$PORT" \
+            '{
+              client_name: $client,
+              container_name: $cname,
+              container_ip: $ip,
+              port: $port
+            }' > "$CONFIG_FILE"
+
+      - name: Check if client config secret already exists
+        id: check_client_secret
+        shell: bash
+        run: |
+          set +e
+
+          SECRET_NAME="${{ steps.naming.outputs.secret_name }}"
+
+          az keyvault secret show \
+            --vault-name "${{ secrets.AZURE_VAULT_NAME }}" \
+            --name "$SECRET_NAME" \
+            --only-show-errors 1>/dev/null 2>/dev/null
+
+          STATUS=$?
+
+          if [ $STATUS -eq 0 ]; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "⚠️ Client config secret already exists in Key Vault: $SECRET_NAME"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+            echo "✅ Client config secret does not exist yet: $SECRET_NAME"
+          fi
+
+      - name: Check if SAP router secret already exists
+        id: check_router_secret
+        shell: bash
+        run: |
+          set +e
+
+          SECRET_NAME="${{ steps.naming.outputs.router_name }}"
+
+          az keyvault secret show \
+            --vault-name "${{ secrets.AZURE_VAULT_NAME }}" \
+            --name "$SECRET_NAME" \
+            --only-show-errors 1>/dev/null 2>/dev/null
+
+          STATUS=$?
+
+          if [ $STATUS -eq 0 ]; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "⚠️ SAP router secret already exists in Key Vault: $SECRET_NAME"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+            echo "✅ SAP router secret does not exist yet: $SECRET_NAME"
+          fi
+
+      - name: Upload client config
+        id: upload_client
+        if: ${{ steps.check_client_secret.outputs.exists != 'true' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          az keyvault secret set \
+            --vault-name "${{ secrets.AZURE_VAULT_NAME }}" \
+            --name "${{ steps.naming.outputs.secret_name }}" \
+            --file "${{ steps.configfile.outputs.config_file }}" \
+            --only-show-errors 1>/dev/null
+
+          echo "uploaded=true" >> "$GITHUB_OUTPUT"
+          echo "✅ Uploaded client config secret: ${{ steps.naming.outputs.secret_name }}"
+
+      - name: Mark client config skipped
+        if: ${{ steps.check_client_secret.outputs.exists == 'true' }}
+        shell: bash
+        run: |
+          echo "⚠️ Skipped client config upload because secret already exists: ${{ steps.naming.outputs.secret_name }}"
+
+      - name: Upload saprouttab
+        id: upload_router
+        if: ${{ steps.check_router_secret.outputs.exists != 'true' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          az keyvault secret set \
+            --vault-name "${{ secrets.AZURE_VAULT_NAME }}" \
+            --name "${{ steps.naming.outputs.router_name }}" \
+            --file "${{ steps.routerfile.outputs.resolved_file }}" \
+            --only-show-errors 1>/dev/null
+
+          echo "uploaded=true" >> "$GITHUB_OUTPUT"
+          echo "✅ Uploaded SAP router secret: ${{ steps.naming.outputs.router_name }}"
+
+      - name: Mark saprouttab skipped
+        if: ${{ steps.check_router_secret.outputs.exists == 'true' }}
+        shell: bash
+        run: |
+          echo "⚠️ Skipped SAP router upload because secret already exists: ${{ steps.naming.outputs.router_name }}"
+
+      - name: Delete saprouttab file from repo
+        if: ${{ steps.check_router_secret.outputs.exists != 'true' && steps.upload_router.outcomes != 'failure' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          FILE="${{ steps.routerfile.outputs.resolved_file }}"
+
+          if [ ! -f "$FILE" ]; then
+            echo "ℹ️ File already missing locally: $FILE"
+            exit 0
+          fi
+
+          if ! git ls-files --error-unmatch "$FILE" >/dev/null 2>&1; then
+            echo "⚠️ File is not tracked in git, skipping repo delete"
+            exit 0
+          fi
+
+          SHA=$(git ls-files -s "$FILE" | awk '{print $2}')
+
+          if [ -z "$SHA" ]; then
+            echo "⚠️ Could not determine git blob SHA for $FILE"
+            exit 1
+          fi
+
+          echo "🗑️ Deleting repo file: $FILE"
+
+          RESPONSE=$(curl -sS -X DELETE \
+            -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${{ github.repository }}/contents/$FILE" \
+            -d "{
+              \"message\": \"Remove sensitive saprouter file after Key Vault upload\",
+              \"sha\": \"$SHA\",
+              \"branch\": \"${{ github.ref_name }}\"
+            }")
+
+          if echo "$RESPONSE" | grep -q '"commit"'; then
+            echo "✅ Deleted from repo: $FILE"
+          else
+            echo "❌ Failed to delete repo file"
+            echo "$RESPONSE"
+            exit 1
+          fi
+
+      - name: Write safe summary
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "## ✅ Client Configuration Process Finished"
+            echo ""
+            echo "| Field | Value |"
+            echo "|------|--------|"
+            echo "| Client | ${{ github.event.inputs.client_name }} |"
+            echo "| Container | ${{ steps.naming.outputs.container_name }} |"
+            echo "| Client secret | ${{ steps.naming.outputs.secret_name }} |"
+            echo "| Client secret already existed | ${{ steps.check_client_secret.outputs.exists }} |"
+            echo "| Router secret | ${{ steps.naming.outputs.router_name }} |"
+            echo "| Router secret already existed | ${{ steps.check_router_secret.outputs.exists }} |"
+            echo "| Router file path | ${{ github.event.inputs.saprouter_file_path }} |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Cleanup runner files
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -f "${{ steps.configfile.outputs.config_file }}"
+          echo "✅ Cleaned up temporary files"
